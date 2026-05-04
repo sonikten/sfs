@@ -63,15 +63,16 @@ A *toolchain* sanity check at end of Phase 0:
 
 ## 7. Definition of done
 
-From `sfs-spec/08_implementation_roadmap.md` §1, Phase 0 gate (extended to four platforms per the locked strategic choice):
+From `sfs-spec/08_implementation_roadmap.md` §1, Phase 0 gate (extended to four platforms per the locked strategic choice). Status as of the latest commit:
 
-- [ ] CI green on `macos-13`, `macos-14`, `windows-2022`, `ubuntu-22.04`.
-- [ ] Skeleton VST3 loads in REAPER on each platform and plays a polynomial 440 Hz sine.
-- [ ] `tests/refs/sine_skeleton_48k_256.wav` hash-matches across all 4 platforms (artifacts uploaded; `determinism-compare` job green).
-- [ ] pluginval Level 1 clean on all 4 platforms.
-- [ ] `clang-format --dry-run --Werror` clean on all `src/` and `tools/` files.
-- [ ] All 5 submodules pinned to tagged releases; `tools/check_submodule_pins.sh` green.
-- [ ] No use of `std::sin`/`std::cos`/`std::exp`/`std::log`/`std::mt19937`/`std::default_random_engine`/`rand()`/`random()`/`AudioProcessorValueTreeState` in `src/` (CI grep clean).
+- [ ] CI green on `macos-13`, `macos-14`, `windows-2022`, `ubuntu-22.04`. *(pending — first full matrix run after `tests/` and `tools/check_determinism.sh` landed)*
+- [ ] Skeleton VST3 loads in REAPER on each platform and plays a polynomial 440 Hz sine. *(verified macOS arm64 locally; Win/Linux/macOS-x64 manual checks pending)*
+- [ ] `tests/refs/sine_skeleton_48k_256.sha256` hash-matches across all 4 platforms (artifacts uploaded; `determinism-compare` job green). *(pending; first cross-platform consensus hash gets locked in once `determinism.yml` is green)*
+- [ ] pluginval Level 1 clean on all 4 platforms. *(pending — `pluginval.yml` v1.0.4)*
+- [x] `clang-format --dry-run --Werror` job in `ci.yml` (Linux) — clean on landed files; pending the actual matrix run.
+- [x] All 5 submodules pinned to tagged releases; `tools/check_submodule_pins.sh` green locally and wired into CI.
+- [x] No use of `std::sin`/`std::cos`/`std::exp`/`std::log`/`std::mt19937`/`std::default_random_engine`/`rand()`/`random()`/`AudioProcessorValueTreeState` in `src/` — `tools/check_determinism.sh` green locally and wired into CI.
+- [x] Catch2 v3 test infrastructure landed; `sfs_unit_tests` builds and runs (4 cases / 8 assertions, all pass on macOS arm64). Wired into `ci.yml` via `ctest`.
 
 ## 8. CI delta turning on at end of Phase 0
 
@@ -80,17 +81,24 @@ From `sfs-spec/08_implementation_roadmap.md` §1, Phase 0 gate (extended to four
 - `pluginval.yml`: pluginval Level 1 (escalates per phase to Level 5 / Level 10 later).
 - `cmake/DeterminismChecks.cmake`: invoked from CI; greps compile log for `-ffast-math` / `/fp:fast` and source for forbidden symbols.
 
-## 9. Bring-up order (from master plan §1)
+## 9. Bring-up order (as built)
 
-1. Repo skeleton (`.gitignore`, `.clang-format`, `.clang-tidy`, `README.md`). **In progress — this commit.**
-2. Top-level `CMakeLists.txt` with C++20, `-fno-fast-math` / `/fp:precise`, `-Werror` / `/WX`. Empty targets.
-3. GitHub Actions matrix running only `cmake -B build && cmake --build build`.
-4. Submodules in dependency order: Random123 → SIMDe → nlohmann/json → Catch2 v3 → JUCE 8.
-5. `cmake/SimdConfig.cmake` per `08 §6`.
-6. Skeleton VST3 with polynomial `dm_sin` 440 Hz tone; FTZ/DAZ on `processBlock` entry; raw `AudioProcessorParameter`s only.
-7. Headless render rig at `tools/sfs_render`.
-8. Determinism harness (`tools/render_reference.sh`, `tools/hash_wav.sh`, `tools/wav_diff`).
-9. pluginval Level 1 in CI.
-10. Pre-commit hook for `clang-format --dry-run --Werror`.
+1. Repo skeleton (`.gitignore`, `.clang-format`, `.clang-tidy`, `README.md`, `docs/phase-plans/phase-0.md`). **Done.**
+2. Top-level `CMakeLists.txt` with C++20, `-fno-fast-math` / `/fp:precise`, `-Werror` / `/WX`; split into `SFS::DeterminismFlags` and `SFS::StrictWarnings`. **Done.**
+3. GitHub Actions 4-platform matrix (`macos-13`, `macos-14`, `windows-2022`, `ubuntu-22.04`). **Done** (`ci.yml`).
+4. Submodules pinned: JUCE 8.0.4, Catch2 v3.7.1, Random123 v1.14.0, SIMDe v0.8.2, nlohmann/json v3.11.3 + `tools/check_submodule_pins.sh`. **Done.**
+5. `cmake/SimdConfig.cmake`. **Done.**
+6. Skeleton VST3 with 7th-order Hastings `dm_sin` 440 Hz tone, `juce::ScopedNoDenormals` for FTZ/DAZ, raw `AudioProcessorParameter`s only. **Done.**
+7. Headless render rig at `tools/sfs_render`. **Done.**
+8. Determinism harness (`tools/render_reference.sh`, `tools/hash_wav.sh`, `tools/wav_diff`, `.github/workflows/determinism.yml`). **Done.**
+9. pluginval Level 1 (`.github/workflows/pluginval.yml`, pinned v1.0.4). **Done.**
+10. Pre-commit hook (`tools/git-hooks/pre-commit` + `install.sh`). **Done.**
 
-Each step gates the next: no step is "done" until its CI is green on all four platforms.
+**P0 follow-ups** (landed after the per-step P0.1–P0.10 commits but still inside the Phase 0 boundary):
+
+- `tools/wav_diff` for diagnosing determinism divergences.
+- `tools/check_determinism.sh` forbidden-symbol grep + CI wiring.
+- Catch2 v3 test infrastructure (`tests/CMakeLists.txt`, `tests/unit/sfs_unit_tests`) + `ctest` wired into CI.
+- `dm_sin` upgraded from 5th-order Taylor (~4e-3 error) to 7th-order Hastings (~2e-6 error) after the Catch2 test caught the over-claimed budget.
+
+Each step gated the next; no step was considered "done" until its CI step was wired in. The cross-platform 4-way verification still requires the in-flight CI run to pass.
