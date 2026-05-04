@@ -1,0 +1,217 @@
+// tools/sfs_render/main.cpp
+//
+// Headless render rig. Phase 0 step 7. Loads the SFS AudioProcessor (Phase 0
+// skeleton: continuous polynomial 440 Hz sine), drives it for a fixed
+// duration, and writes a WAV file. No DAW host, no GUI.
+//
+// This is the substrate for every later integration test: contract tests,
+// determinism hash, factory-preset audio hashing (Phase 4), etc. Keep it
+// minimal and dependency-free beyond JUCE + sfs_plugin_core.
+//
+// Usage:
+//   sfs_render [--sr 48000] [--block 256] [--seconds 1.0] [--channels 2]
+//              [--out output.wav]
+//
+// Exit codes:
+//   0  success
+//   1  invocation / I/O error
+//   2  AudioProcessor reported an unsupported bus layout
+
+#include "PluginProcessor.h"
+
+#include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_audio_formats/juce_audio_formats.h>
+#include <juce_core/juce_core.h>
+
+#include <cstdio>
+#include <cstdlib>
+#include <memory>
+#include <string>
+#include <string_view>
+
+namespace
+{
+
+struct RenderOptions
+{
+    double      sampleRate    = 48000.0;
+    int         blockSize     = 256;
+    double      durationSec   = 1.0;
+    int         numChannels   = 2;
+    std::string outputPath    = "sine_skeleton_48k_256.wav";
+};
+
+void printUsage()
+{
+    std::fprintf(stderr,
+        "usage: sfs_render [--sr <hz>] [--block <n>] [--seconds <s>]\n"
+        "                  [--channels <n>] [--out <path>]\n"
+        "\n"
+        "Phase 0 headless render of the SFS skeleton plug-in. Defaults:\n"
+        "  --sr 48000  --block 256  --seconds 1.0  --channels 2\n"
+        "  --out sine_skeleton_48k_256.wav\n");
+}
+
+bool parseArgs(int argc, char** argv, RenderOptions& opts)
+{
+    for (int i = 1; i < argc; ++i)
+    {
+        const std::string_view arg{argv[i]};
+        const auto next = [&](double* dst, int* dstI = nullptr) -> bool {
+            if (++i >= argc)
+            {
+                std::fprintf(stderr, "sfs_render: missing value for %.*s\n",
+                             static_cast<int>(arg.size()), arg.data());
+                return false;
+            }
+            if (dstI != nullptr)
+            {
+                *dstI = std::atoi(argv[i]);
+            }
+            else
+            {
+                *dst = std::atof(argv[i]);
+            }
+            return true;
+        };
+
+        if (arg == "--sr")
+        {
+            if (!next(&opts.sampleRate)) return false;
+        }
+        else if (arg == "--block")
+        {
+            double tmp = 0;
+            if (!next(&tmp, &opts.blockSize)) return false;
+        }
+        else if (arg == "--seconds")
+        {
+            if (!next(&opts.durationSec)) return false;
+        }
+        else if (arg == "--channels")
+        {
+            double tmp = 0;
+            if (!next(&tmp, &opts.numChannels)) return false;
+        }
+        else if (arg == "--out")
+        {
+            if (++i >= argc)
+            {
+                std::fprintf(stderr, "sfs_render: missing value for --out\n");
+                return false;
+            }
+            opts.outputPath = argv[i];
+        }
+        else if (arg == "-h" || arg == "--help")
+        {
+            printUsage();
+            std::exit(0);
+        }
+        else
+        {
+            std::fprintf(stderr, "sfs_render: unknown argument '%.*s'\n",
+                         static_cast<int>(arg.size()), arg.data());
+            printUsage();
+            return false;
+        }
+    }
+
+    if (opts.sampleRate <= 0.0 || opts.blockSize <= 0 ||
+        opts.durationSec <= 0.0 || opts.numChannels <= 0)
+    {
+        std::fprintf(stderr, "sfs_render: invalid argument values\n");
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+int main(int argc, char** argv)
+{
+    RenderOptions opts;
+    if (!parseArgs(argc, argv, opts))
+    {
+        return 1;
+    }
+
+    sfs::plugin::SfsAudioProcessor processor;
+
+    // The plug-in advertises stereo only by default; ask for the requested
+    // layout, fall back to stereo if unsupported (Phase 0 skeleton supports
+    // mono and stereo).
+    juce::AudioProcessor::BusesLayout layout;
+    layout.outputBuses.add(opts.numChannels == 1
+        ? juce::AudioChannelSet::mono()
+        : juce::AudioChannelSet::stereo());
+    if (!processor.checkBusesLayoutSupported(layout))
+    {
+        std::fprintf(stderr, "sfs_render: AudioProcessor does not support %d-channel output\n",
+                     opts.numChannels);
+        return 2;
+    }
+    processor.setBusesLayout(layout);
+
+    processor.prepareToPlay(opts.sampleRate, opts.blockSize);
+
+    // Output WAV: 32-bit float, little-endian. Single source of truth for the
+    // determinism harness; do NOT change format without bumping reference hashes.
+    juce::File outFile(juce::File::getCurrentWorkingDirectory().getChildFile(opts.outputPath));
+    if (juce::File::isAbsolutePath(juce::String(opts.outputPath)))
+    {
+        outFile = juce::File(opts.outputPath);
+    }
+    outFile.deleteFile();
+    outFile.getParentDirectory().createDirectory();
+
+    auto fileStream = std::make_unique<juce::FileOutputStream>(outFile);
+    if (!fileStream->openedOk())
+    {
+        std::fprintf(stderr, "sfs_render: cannot open output '%s' for writing\n",
+                     outFile.getFullPathName().toRawUTF8());
+        return 1;
+    }
+
+    juce::WavAudioFormat wavFormat;
+    constexpr int        kBitsPerSample = 32;   // 32-bit float
+    juce::StringPairArray emptyMetadata;
+    std::unique_ptr<juce::AudioFormatWriter> writer{
+        wavFormat.createWriterFor(fileStream.release(),
+                                  opts.sampleRate,
+                                  static_cast<unsigned int>(opts.numChannels),
+                                  kBitsPerSample,
+                                  emptyMetadata,
+                                  /*qualityOptionIndex=*/0)};
+
+    if (writer == nullptr)
+    {
+        std::fprintf(stderr, "sfs_render: cannot create WAV writer\n");
+        return 1;
+    }
+
+    juce::AudioBuffer<float> buffer(opts.numChannels, opts.blockSize);
+    juce::MidiBuffer         midi;
+
+    const auto totalSamples =
+        static_cast<juce::int64>(opts.durationSec * opts.sampleRate + 0.5);
+    juce::int64 written = 0;
+
+    while (written < totalSamples)
+    {
+        const int n = static_cast<int>(std::min<juce::int64>(opts.blockSize, totalSamples - written));
+        buffer.clear();
+        processor.processBlock(buffer, midi);
+        writer->writeFromAudioSampleBuffer(buffer, 0, n);
+        written += n;
+    }
+
+    writer.reset();   // flushes header + data
+    processor.releaseResources();
+
+    std::fprintf(stdout, "wrote %lld samples (%.3f s @ %.0f Hz, %d ch) -> %s\n",
+                 static_cast<long long>(written),
+                 static_cast<double>(written) / opts.sampleRate,
+                 opts.sampleRate, opts.numChannels,
+                 outFile.getFullPathName().toRawUTF8());
+    return 0;
+}
