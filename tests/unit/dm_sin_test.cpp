@@ -11,8 +11,8 @@
 
 #include "dsp/dm_sin.h"
 
-#include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <cmath>
@@ -21,8 +21,8 @@
 namespace
 {
 
-constexpr float kPi      = 3.14159265358979323846f;
-constexpr float kTwoPi   = 6.28318530717958647692f;
+constexpr float kPi = 3.14159265358979323846f;
+constexpr float kTwoPi = 6.28318530717958647692f;
 
 // Phase 0 budget: Hastings 7th-order in float32 lands around 2e-6.
 // Phase 1 refits coefficients to hit the spec's 1e-6 budget; this constant
@@ -41,7 +41,7 @@ TEST_CASE("dm_sin matches std::sin within budget on principal range", "[dsp][dm_
         const float t = -kPi + (2.0f * kPi) * static_cast<float>(i) / static_cast<float>(kSamples);
         const float reference = std::sin(t);
         const float candidate = sfs::dsp::dm_sin(t);
-        const float err       = std::fabs(reference - candidate);
+        const float err = std::fabs(reference - candidate);
         if (err > maxError)
         {
             maxError = err;
@@ -56,15 +56,15 @@ TEST_CASE("dm_sin holds across multiple periods", "[dsp][dm_sin]")
 {
     // Range reduction must keep the error bounded outside [-π, π] too.
     constexpr float kRange = 100.0f * kTwoPi;
-    constexpr int   kSamples = 4096;
-    float           maxError = 0.0f;
+    constexpr int kSamples = 4096;
+    float maxError = 0.0f;
 
     for (int i = 0; i <= kSamples; ++i)
     {
         const float t = -kRange + (2.0f * kRange) * static_cast<float>(i) / static_cast<float>(kSamples);
         const float reference = std::sin(t);
         const float candidate = sfs::dsp::dm_sin(t);
-        const float err       = std::fabs(reference - candidate);
+        const float err = std::fabs(reference - candidate);
         if (err > maxError)
         {
             maxError = err;

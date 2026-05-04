@@ -27,46 +27,45 @@ public:
     ~SfsAudioProcessor() override = default;
 
     // ----- AudioProcessor lifecycle ---------------------------------------
-    void prepareToPlay (double sampleRate, int samplesPerBlock) override;
+    void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
-    void processBlock (juce::AudioBuffer<float>& buffer,
-                       juce::MidiBuffer& midiMessages) override;
+    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) override;
 
-    bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
+    bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
 
     // ----- Editor (none in Phase 0) ---------------------------------------
     juce::AudioProcessorEditor* createEditor() override { return nullptr; }
-    bool                        hasEditor() const override { return false; }
+    bool hasEditor() const override { return false; }
 
     // ----- Identity --------------------------------------------------------
     const juce::String getName() const override { return "SFS (Phase 0)"; }
 
-    bool acceptsMidi()  const override { return true;  }
+    bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
 
     double getTailLengthSeconds() const override { return 0.0; }
 
     // ----- Programs (placeholder) -----------------------------------------
-    int                getNumPrograms() override                              { return 1; }
-    int                getCurrentProgram() override                           { return 0; }
-    void               setCurrentProgram (int) override                       {}
-    const juce::String getProgramName (int) override                          { return {}; }
-    void               changeProgramName (int, const juce::String&) override  {}
+    int getNumPrograms() override { return 1; }
+    int getCurrentProgram() override { return 0; }
+    void setCurrentProgram(int) override {}
+    const juce::String getProgramName(int) override { return {}; }
+    void changeProgramName(int, const juce::String&) override {}
 
     // ----- State (no-op in Phase 0; preset format arrives in Phase 4) ------
-    void getStateInformation (juce::MemoryBlock&)        override {}
-    void setStateInformation (const void*, int)          override {}
+    void getStateInformation(juce::MemoryBlock&) override {}
+    void setStateInformation(const void*, int) override {}
 
 private:
     static constexpr float kTestToneFrequencyHz = 440.0f;
-    static constexpr float kTestToneAmplitude   = 0.05f;   // ~−26 dBFS, quiet on load
+    static constexpr float kTestToneAmplitude = 0.05f; // ~−26 dBFS, quiet on load
 
     double sampleRate_ = 48000.0;
-    float  phase_      = 0.0f;
-    float  phaseInc_   = 0.0f;
+    float phase_ = 0.0f;
+    float phaseInc_ = 0.0f;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SfsAudioProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SfsAudioProcessor)
 };
 
 } // namespace sfs::plugin

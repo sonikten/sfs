@@ -34,26 +34,26 @@ namespace
 
 struct RenderOptions
 {
-    double      sampleRate    = 48000.0;
-    int         blockSize     = 256;
-    double      durationSec   = 1.0;
-    int         numChannels   = 2;
-    std::string outputPath    = "sine_skeleton_48k_256.wav";
-    std::string rawOutputPath;  // when non-empty, also write raw channel-interleaved float32 PCM
+    double sampleRate = 48000.0;
+    int blockSize = 256;
+    double durationSec = 1.0;
+    int numChannels = 2;
+    std::string outputPath = "sine_skeleton_48k_256.wav";
+    std::string rawOutputPath; // when non-empty, also write raw channel-interleaved float32 PCM
 };
 
 void printUsage()
 {
     std::fprintf(stderr,
-        "usage: sfs_render [--sr <hz>] [--block <n>] [--seconds <s>]\n"
-        "                  [--channels <n>] [--out <path>] [--raw <path>]\n"
-        "\n"
-        "Phase 0 headless render of the SFS skeleton plug-in. Defaults:\n"
-        "  --sr 48000  --block 256  --seconds 1.0  --channels 2\n"
-        "  --out sine_skeleton_48k_256.wav\n"
-        "  --raw <none>     when set, also write channel-interleaved float32\n"
-        "                   PCM (no header) to <path> for hashing per spec\n"
-        "                   sfs-spec/06 §2.2.\n");
+                 "usage: sfs_render [--sr <hz>] [--block <n>] [--seconds <s>]\n"
+                 "                  [--channels <n>] [--out <path>] [--raw <path>]\n"
+                 "\n"
+                 "Phase 0 headless render of the SFS skeleton plug-in. Defaults:\n"
+                 "  --sr 48000  --block 256  --seconds 1.0  --channels 2\n"
+                 "  --out sine_skeleton_48k_256.wav\n"
+                 "  --raw <none>     when set, also write channel-interleaved float32\n"
+                 "                   PCM (no header) to <path> for hashing per spec\n"
+                 "                   sfs-spec/06 §2.2.\n");
 }
 
 bool parseArgs(int argc, char** argv, RenderOptions& opts)
@@ -61,11 +61,11 @@ bool parseArgs(int argc, char** argv, RenderOptions& opts)
     for (int i = 1; i < argc; ++i)
     {
         const std::string_view arg{argv[i]};
-        const auto next = [&](double* dst, int* dstI = nullptr) -> bool {
+        const auto next = [&](double* dst, int* dstI = nullptr) -> bool
+        {
             if (++i >= argc)
             {
-                std::fprintf(stderr, "sfs_render: missing value for %.*s\n",
-                             static_cast<int>(arg.size()), arg.data());
+                std::fprintf(stderr, "sfs_render: missing value for %.*s\n", static_cast<int>(arg.size()), arg.data());
                 return false;
             }
             if (dstI != nullptr)
@@ -81,21 +81,25 @@ bool parseArgs(int argc, char** argv, RenderOptions& opts)
 
         if (arg == "--sr")
         {
-            if (!next(&opts.sampleRate)) return false;
+            if (!next(&opts.sampleRate))
+                return false;
         }
         else if (arg == "--block")
         {
             double tmp = 0;
-            if (!next(&tmp, &opts.blockSize)) return false;
+            if (!next(&tmp, &opts.blockSize))
+                return false;
         }
         else if (arg == "--seconds")
         {
-            if (!next(&opts.durationSec)) return false;
+            if (!next(&opts.durationSec))
+                return false;
         }
         else if (arg == "--channels")
         {
             double tmp = 0;
-            if (!next(&tmp, &opts.numChannels)) return false;
+            if (!next(&tmp, &opts.numChannels))
+                return false;
         }
         else if (arg == "--out")
         {
@@ -122,15 +126,13 @@ bool parseArgs(int argc, char** argv, RenderOptions& opts)
         }
         else
         {
-            std::fprintf(stderr, "sfs_render: unknown argument '%.*s'\n",
-                         static_cast<int>(arg.size()), arg.data());
+            std::fprintf(stderr, "sfs_render: unknown argument '%.*s'\n", static_cast<int>(arg.size()), arg.data());
             printUsage();
             return false;
         }
     }
 
-    if (opts.sampleRate <= 0.0 || opts.blockSize <= 0 ||
-        opts.durationSec <= 0.0 || opts.numChannels <= 0)
+    if (opts.sampleRate <= 0.0 || opts.blockSize <= 0 || opts.durationSec <= 0.0 || opts.numChannels <= 0)
     {
         std::fprintf(stderr, "sfs_render: invalid argument values\n");
         return false;
@@ -154,13 +156,10 @@ int main(int argc, char** argv)
     // layout, fall back to stereo if unsupported (Phase 0 skeleton supports
     // mono and stereo).
     juce::AudioProcessor::BusesLayout layout;
-    layout.outputBuses.add(opts.numChannels == 1
-        ? juce::AudioChannelSet::mono()
-        : juce::AudioChannelSet::stereo());
+    layout.outputBuses.add(opts.numChannels == 1 ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo());
     if (!processor.checkBusesLayoutSupported(layout))
     {
-        std::fprintf(stderr, "sfs_render: AudioProcessor does not support %d-channel output\n",
-                     opts.numChannels);
+        std::fprintf(stderr, "sfs_render: AudioProcessor does not support %d-channel output\n", opts.numChannels);
         return 2;
     }
     processor.setBusesLayout(layout);
@@ -180,13 +179,14 @@ int main(int argc, char** argv)
     auto fileStream = std::make_unique<juce::FileOutputStream>(outFile);
     if (!fileStream->openedOk())
     {
-        std::fprintf(stderr, "sfs_render: cannot open output '%s' for writing\n",
+        std::fprintf(stderr,
+                     "sfs_render: cannot open output '%s' for writing\n",
                      outFile.getFullPathName().toRawUTF8());
         return 1;
     }
 
     juce::WavAudioFormat wavFormat;
-    constexpr int        kBitsPerSample = 32;   // 32-bit float
+    constexpr int kBitsPerSample = 32; // 32-bit float
     juce::StringPairArray emptyMetadata;
     std::unique_ptr<juce::AudioFormatWriter> writer{
         wavFormat.createWriterFor(fileStream.release(),
@@ -217,17 +217,17 @@ int main(int argc, char** argv)
         rawStream = std::make_unique<juce::FileOutputStream>(rawFile);
         if (!rawStream->openedOk())
         {
-            std::fprintf(stderr, "sfs_render: cannot open raw output '%s' for writing\n",
+            std::fprintf(stderr,
+                         "sfs_render: cannot open raw output '%s' for writing\n",
                          rawFile.getFullPathName().toRawUTF8());
             return 1;
         }
     }
 
     juce::AudioBuffer<float> buffer(opts.numChannels, opts.blockSize);
-    juce::MidiBuffer         midi;
+    juce::MidiBuffer midi;
 
-    const auto totalSamples =
-        static_cast<juce::int64>(opts.durationSec * opts.sampleRate + 0.5);
+    const auto totalSamples = static_cast<juce::int64>(opts.durationSec * opts.sampleRate + 0.5);
     juce::int64 written = 0;
 
     while (written < totalSamples)
@@ -254,14 +254,16 @@ int main(int argc, char** argv)
         written += n;
     }
 
-    writer.reset();      // flushes header + data
-    rawStream.reset();   // flushes raw bytes
+    writer.reset();    // flushes header + data
+    rawStream.reset(); // flushes raw bytes
     processor.releaseResources();
 
-    std::fprintf(stdout, "wrote %lld samples (%.3f s @ %.0f Hz, %d ch) -> %s\n",
+    std::fprintf(stdout,
+                 "wrote %lld samples (%.3f s @ %.0f Hz, %d ch) -> %s\n",
                  static_cast<long long>(written),
                  static_cast<double>(written) / opts.sampleRate,
-                 opts.sampleRate, opts.numChannels,
+                 opts.sampleRate,
+                 opts.numChannels,
                  outFile.getFullPathName().toRawUTF8());
     return 0;
 }

@@ -31,19 +31,19 @@ namespace
 void printUsage()
 {
     std::fprintf(stderr,
-        "usage: wav_diff <a.wav> <b.wav> [--epsilon N]\n"
-        "\n"
-        "Compare two WAV files sample-by-sample. Exit 0 on match, 1 on diff.\n");
+                 "usage: wav_diff <a.wav> <b.wav> [--epsilon N]\n"
+                 "\n"
+                 "Compare two WAV files sample-by-sample. Exit 0 on match, 1 on diff.\n");
 }
 
 struct LoadedWav
 {
     juce::AudioBuffer<float> buffer;
-    double                   sampleRate     = 0.0;
-    int                      numChannels    = 0;
-    juce::int64              numSamples     = 0;
-    int                      bitsPerSample  = 0;
-    juce::String             format;
+    double sampleRate = 0.0;
+    int numChannels = 0;
+    juce::int64 numSamples = 0;
+    int bitsPerSample = 0;
+    juce::String format;
 };
 
 bool loadWav(const juce::File& file, LoadedWav& out, juce::AudioFormatManager& mgr)
@@ -57,16 +57,15 @@ bool loadWav(const juce::File& file, LoadedWav& out, juce::AudioFormatManager& m
     std::unique_ptr<juce::AudioFormatReader> reader{mgr.createReaderFor(file)};
     if (reader == nullptr)
     {
-        std::fprintf(stderr, "wav_diff: unsupported audio format: %s\n",
-                     file.getFullPathName().toRawUTF8());
+        std::fprintf(stderr, "wav_diff: unsupported audio format: %s\n", file.getFullPathName().toRawUTF8());
         return false;
     }
 
-    out.sampleRate    = reader->sampleRate;
-    out.numChannels   = static_cast<int>(reader->numChannels);
-    out.numSamples    = reader->lengthInSamples;
+    out.sampleRate = reader->sampleRate;
+    out.numChannels = static_cast<int>(reader->numChannels);
+    out.numSamples = reader->lengthInSamples;
     out.bitsPerSample = static_cast<int>(reader->bitsPerSample);
-    out.format        = reader->getFormatName();
+    out.format = reader->getFormatName();
 
     out.buffer.setSize(out.numChannels, static_cast<int>(out.numSamples));
     reader->read(&out.buffer, 0, static_cast<int>(out.numSamples), 0, true, true);
@@ -85,7 +84,7 @@ int main(int argc, char** argv)
 
     juce::File aFile(argv[1]);
     juce::File bFile(argv[2]);
-    float      epsilon = 0.0f;
+    float epsilon = 0.0f;
 
     for (int i = 3; i < argc; ++i)
     {
@@ -111,34 +110,40 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    if (a.sampleRate != b.sampleRate
-        || a.numChannels != b.numChannels
-        || a.numSamples  != b.numSamples
-        || a.bitsPerSample != b.bitsPerSample)
+    if (a.sampleRate != b.sampleRate || a.numChannels != b.numChannels || a.numSamples != b.numSamples ||
+        a.bitsPerSample != b.bitsPerSample)
     {
-        std::fprintf(stderr, "wav_diff: format mismatch — refusing to diff:\n"
-                             "  a: %.0f Hz, %d ch, %lld samples, %d-bit %s\n"
-                             "  b: %.0f Hz, %d ch, %lld samples, %d-bit %s\n",
-                     a.sampleRate, a.numChannels,
-                     static_cast<long long>(a.numSamples), a.bitsPerSample,
+        std::fprintf(stderr,
+                     "wav_diff: format mismatch — refusing to diff:\n"
+                     "  a: %.0f Hz, %d ch, %lld samples, %d-bit %s\n"
+                     "  b: %.0f Hz, %d ch, %lld samples, %d-bit %s\n",
+                     a.sampleRate,
+                     a.numChannels,
+                     static_cast<long long>(a.numSamples),
+                     a.bitsPerSample,
                      a.format.toRawUTF8(),
-                     b.sampleRate, b.numChannels,
-                     static_cast<long long>(b.numSamples), b.bitsPerSample,
+                     b.sampleRate,
+                     b.numChannels,
+                     static_cast<long long>(b.numSamples),
+                     b.bitsPerSample,
                      b.format.toRawUTF8());
         return 2;
     }
 
     std::fprintf(stdout,
                  "comparing %lld samples × %d ch @ %.0f Hz (epsilon=%g)\n",
-                 static_cast<long long>(a.numSamples), a.numChannels, a.sampleRate, epsilon);
+                 static_cast<long long>(a.numSamples),
+                 a.numChannels,
+                 a.sampleRate,
+                 epsilon);
 
     juce::int64 firstDiffSample = -1;
-    int         firstDiffChan   = -1;
-    juce::int64 numDiffSamples  = 0;
-    float       maxAbsDiff      = 0.0f;
-    juce::int64 maxDiffSample   = -1;
-    int         maxDiffChan     = -1;
-    double      sumSqDiff       = 0.0;
+    int firstDiffChan = -1;
+    juce::int64 numDiffSamples = 0;
+    float maxAbsDiff = 0.0f;
+    juce::int64 maxDiffSample = -1;
+    int maxDiffChan = -1;
+    double sumSqDiff = 0.0;
 
     for (int ch = 0; ch < a.numChannels; ++ch)
     {
@@ -152,14 +157,14 @@ int main(int argc, char** argv)
                 if (firstDiffSample < 0)
                 {
                     firstDiffSample = i;
-                    firstDiffChan   = ch;
+                    firstDiffChan = ch;
                 }
                 ++numDiffSamples;
                 if (d > maxAbsDiff)
                 {
-                    maxAbsDiff    = d;
+                    maxAbsDiff = d;
                     maxDiffSample = i;
-                    maxDiffChan   = ch;
+                    maxDiffChan = ch;
                 }
                 sumSqDiff += static_cast<double>(d) * d;
             }
@@ -180,13 +185,16 @@ int main(int argc, char** argv)
                  "  max divergence:    sample=%lld  channel=%d  |a-b|=%.9g\n"
                  "  total divergent:   %lld of %lld samples\n"
                  "  RMSE over diffs:   %.9g\n",
-                 static_cast<long long>(firstDiffSample), firstDiffChan,
+                 static_cast<long long>(firstDiffSample),
+                 firstDiffChan,
                  static_cast<long long>(firstDiffSample / 256),
                  a.buffer.getSample(firstDiffChan, static_cast<int>(firstDiffSample)),
                  b.buffer.getSample(firstDiffChan, static_cast<int>(firstDiffSample)),
-                 std::fabs(a.buffer.getSample(firstDiffChan, static_cast<int>(firstDiffSample))
-                           - b.buffer.getSample(firstDiffChan, static_cast<int>(firstDiffSample))),
-                 static_cast<long long>(maxDiffSample), maxDiffChan, maxAbsDiff,
+                 std::fabs(a.buffer.getSample(firstDiffChan, static_cast<int>(firstDiffSample)) -
+                           b.buffer.getSample(firstDiffChan, static_cast<int>(firstDiffSample))),
+                 static_cast<long long>(maxDiffSample),
+                 maxDiffChan,
+                 maxAbsDiff,
                  static_cast<long long>(numDiffSamples),
                  static_cast<long long>(a.numSamples * a.numChannels),
                  rmse);

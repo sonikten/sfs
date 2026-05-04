@@ -19,16 +19,15 @@ constexpr float kTwoPi = 6.2831853f;
 } // namespace
 
 SfsAudioProcessor::SfsAudioProcessor()
-    : juce::AudioProcessor (BusesProperties()
-                                .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
+    : juce::AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
 }
 
-void SfsAudioProcessor::prepareToPlay (double sampleRate, int /*samplesPerBlock*/)
+void SfsAudioProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
 {
     sampleRate_ = sampleRate;
-    phaseInc_   = kTestToneFrequencyHz * kTwoPi / static_cast<float> (sampleRate);
-    phase_      = 0.0f;
+    phaseInc_ = kTestToneFrequencyHz * kTwoPi / static_cast<float>(sampleRate);
+    phase_ = 0.0f;
 }
 
 void SfsAudioProcessor::releaseResources()
@@ -36,28 +35,26 @@ void SfsAudioProcessor::releaseResources()
     // Nothing to free in the Phase 0 skeleton.
 }
 
-bool SfsAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+bool SfsAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     const auto& out = layouts.getMainOutputChannelSet();
-    return out == juce::AudioChannelSet::mono()
-        || out == juce::AudioChannelSet::stereo();
+    return out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo();
 }
 
-void SfsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
-                                      juce::MidiBuffer& /*midiMessages*/)
+void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& /*midiMessages*/)
 {
     // Set FTZ/DAZ for the duration of this block. Mandatory per the
     // determinism contract (CLAUDE.md "Hard invariants" + sfs-spec/01 §9).
     const juce::ScopedNoDenormals noDenormals;
 
-    const auto numSamples  = buffer.getNumSamples();
+    const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
 
     // Clear any host-supplied input that may have been mistakenly routed in
     // (we're a synth; ignore inputs).
     for (int ch = getTotalNumInputChannels(); ch < numChannels; ++ch)
     {
-        buffer.clear (ch, 0, numSamples);
+        buffer.clear(ch, 0, numSamples);
     }
 
     // Generate the test tone once, then copy across channels. Single-source
@@ -67,10 +64,10 @@ void SfsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         return;
     }
 
-    auto* const left = buffer.getWritePointer (0);
+    auto* const left = buffer.getWritePointer(0);
     for (int i = 0; i < numSamples; ++i)
     {
-        left[i] = kTestToneAmplitude * sfs::dsp::dm_sin (phase_);
+        left[i] = kTestToneAmplitude * sfs::dsp::dm_sin(phase_);
         phase_ += phaseInc_;
         if (phase_ >= kTwoPi)
         {
@@ -80,7 +77,7 @@ void SfsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     for (int ch = 1; ch < numChannels; ++ch)
     {
-        buffer.copyFrom (ch, 0, buffer, 0, 0, numSamples);
+        buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
     }
 }
 

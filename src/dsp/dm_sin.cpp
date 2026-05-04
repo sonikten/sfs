@@ -29,9 +29,9 @@ namespace sfs::dsp
 namespace
 {
 
-constexpr float kPi       = 3.1415927f;
-constexpr float kTwoPi    = 6.2831853f;
-constexpr float kHalfPi   = 1.5707963f;
+constexpr float kPi = 3.1415927f;
+constexpr float kTwoPi = 6.2831853f;
+constexpr float kHalfPi = 1.5707963f;
 constexpr float kInvTwoPi = 0.15915494f; // 1 / (2π)
 
 // Hastings 1955 7th-order odd polynomial,
