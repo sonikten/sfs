@@ -51,10 +51,14 @@ fi
 
 echo "Using render binary: $RENDER_BIN"
 
-# Render each canonical clip. Add new entries below as later phases land.
+# Render each canonical clip. The .wav is for human listening; the .raw is
+# the channel-interleaved float32 PCM used for the determinism hash per
+# sfs-spec/06 §2.2. Add new entries below as later phases land.
 "$RENDER_BIN" --sr 48000 --block 256 --seconds 1.0 --channels 2 \
-    --out "${OUT_DIR}/sine_skeleton_48k_256.wav"
+    --out "${OUT_DIR}/sine_skeleton_48k_256.wav" \
+    --raw "${OUT_DIR}/sine_skeleton_48k_256.raw"
 
 echo
 echo "Renders complete. Hash with:"
-echo "  tools/hash_wav.sh ${OUT_DIR}/*.wav"
+echo "  tools/hash_pcm.sh ${OUT_DIR}/*.raw       # determinism contract"
+echo "  tools/hash_wav.sh ${OUT_DIR}/*.wav       # informational"

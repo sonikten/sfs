@@ -39,17 +39,21 @@ struct RenderOptions
     double      durationSec   = 1.0;
     int         numChannels   = 2;
     std::string outputPath    = "sine_skeleton_48k_256.wav";
+    std::string rawOutputPath;  // when non-empty, also write raw channel-interleaved float32 PCM
 };
 
 void printUsage()
 {
     std::fprintf(stderr,
         "usage: sfs_render [--sr <hz>] [--block <n>] [--seconds <s>]\n"
-        "                  [--channels <n>] [--out <path>]\n"
+        "                  [--channels <n>] [--out <path>] [--raw <path>]\n"
         "\n"
         "Phase 0 headless render of the SFS skeleton plug-in. Defaults:\n"
         "  --sr 48000  --block 256  --seconds 1.0  --channels 2\n"
-        "  --out sine_skeleton_48k_256.wav\n");
+        "  --out sine_skeleton_48k_256.wav\n"
+        "  --raw <none>     when set, also write channel-interleaved float32\n"
+        "                   PCM (no header) to <path> for hashing per spec\n"
+        "                   sfs-spec/06 §2.2.\n");
 }
 
 bool parseArgs(int argc, char** argv, RenderOptions& opts)
@@ -101,6 +105,15 @@ bool parseArgs(int argc, char** argv, RenderOptions& opts)
                 return false;
             }
             opts.outputPath = argv[i];
+        }
+        else if (arg == "--raw")
+        {
+            if (++i >= argc)
+            {
+                std::fprintf(stderr, "sfs_render: missing value for --raw\n");
+                return false;
+            }
+            opts.rawOutputPath = argv[i];
         }
         else if (arg == "-h" || arg == "--help")
         {
@@ -189,6 +202,27 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    // Optional raw PCM stream: channel-interleaved float32, no header.
+    // Per sfs-spec/06 §2.2, the determinism hash MUST be over raw PCM frames,
+    // not over the .wav file (whose header may differ across platforms for
+    // non-audio reasons — BWF timestamps, INFO chunk ordering, etc.).
+    std::unique_ptr<juce::FileOutputStream> rawStream;
+    if (!opts.rawOutputPath.empty())
+    {
+        juce::File rawFile(juce::File::isAbsolutePath(juce::String(opts.rawOutputPath))
+                               ? juce::File(opts.rawOutputPath)
+                               : juce::File::getCurrentWorkingDirectory().getChildFile(opts.rawOutputPath));
+        rawFile.deleteFile();
+        rawFile.getParentDirectory().createDirectory();
+        rawStream = std::make_unique<juce::FileOutputStream>(rawFile);
+        if (!rawStream->openedOk())
+        {
+            std::fprintf(stderr, "sfs_render: cannot open raw output '%s' for writing\n",
+                         rawFile.getFullPathName().toRawUTF8());
+            return 1;
+        }
+    }
+
     juce::AudioBuffer<float> buffer(opts.numChannels, opts.blockSize);
     juce::MidiBuffer         midi;
 
@@ -202,10 +236,26 @@ int main(int argc, char** argv)
         buffer.clear();
         processor.processBlock(buffer, midi);
         writer->writeFromAudioSampleBuffer(buffer, 0, n);
+
+        if (rawStream != nullptr)
+        {
+            // Channel-interleaved float32. All v1.0 platforms are little-endian
+            // (x86_64 + arm64) so we can write host-order bytes directly.
+            for (int s = 0; s < n; ++s)
+            {
+                for (int ch = 0; ch < opts.numChannels; ++ch)
+                {
+                    const float v = buffer.getSample(ch, s);
+                    rawStream->write(&v, sizeof(float));
+                }
+            }
+        }
+
         written += n;
     }
 
-    writer.reset();   // flushes header + data
+    writer.reset();      // flushes header + data
+    rawStream.reset();   // flushes raw bytes
     processor.releaseResources();
 
     std::fprintf(stdout, "wrote %lld samples (%.3f s @ %.0f Hz, %d ch) -> %s\n",
