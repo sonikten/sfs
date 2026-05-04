@@ -160,6 +160,7 @@ add_subdirectory(src/dsp)
 # subsystems here in dependency order keeps the build narrow when only some
 # pieces are needed.
 add_subdirectory(src/engine/rng)
+add_subdirectory(src/engine/substrate)
 
 # JUCE submodule lives at third_party/JUCE (pinned via tools/check_submodule_pins.sh).
 # Only wired in when the plug-in is being built — keeps DSP-only configures fast.
