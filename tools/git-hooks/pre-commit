@@ -12,32 +12,30 @@ if ! command -v clang-format >/dev/null 2>&1; then
     exit 0
 fi
 
-# Staged files matching first-party C/C++ paths.
-mapfile -t files < <(git diff --cached --name-only --diff-filter=ACMR \
+# Staged files matching first-party C/C++ paths. Avoid `mapfile`/`readarray`
+# — those are bash 4+ builtins; macOS ships with bash 3.2.
+files=$(git diff --cached --name-only --diff-filter=ACMR \
     -- '*.cpp' '*.cxx' '*.cc' '*.c' '*.h' '*.hpp' '*.hxx' \
     | grep -E '^(src|tools|tests)/' \
     | grep -v '^third_party/' \
     || true)
 
-if [ "${#files[@]}" -eq 0 ]; then
-    exit 0
-fi
+[ -z "$files" ] && exit 0
 
-bad=()
-for f in "${files[@]}"; do
+bad=""
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
     if ! clang-format --dry-run --Werror --style=file "$f" 2>/dev/null; then
-        bad+=("$f")
+        bad="${bad}${f}"$'\n'
     fi
-done
+done <<< "$files"
 
-if [ "${#bad[@]}" -gt 0 ]; then
+if [ -n "$bad" ]; then
     echo
     echo "pre-commit: the following files need clang-format:" >&2
-    for f in "${bad[@]}"; do
-        echo "  $f" >&2
-    done
+    printf '  %s\n' $bad >&2
     echo
-    echo "Fix with:  clang-format -i ${bad[*]}" >&2
+    echo "Fix with:  clang-format -i $(echo $bad | tr '\n' ' ')" >&2
     exit 1
 fi
 
