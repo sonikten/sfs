@@ -68,11 +68,19 @@ jobs:
         shell: bash
         run: tools/check_submodule_pins.sh
 
+      - name: Determinism check (forbidden symbols)
+        shell: bash
+        run: tools/check_determinism.sh
+
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSFS_BUILD_PLUGIN=ON -DSFS_BUILD_TOOLS=ON
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSFS_BUILD_PLUGIN=ON -DSFS_BUILD_TOOLS=ON -DSFS_BUILD_TESTS=ON
 
       - name: Build (top-level)
         run: cmake --build build --config Release --parallel
+
+      - name: Run unit tests
+        working-directory: build
+        run: ctest --output-on-failure --build-config Release
 
       # ---------------------------------------------------------------------
       # The following jobs/steps turn on in later Phase 0 steps. Listed here
