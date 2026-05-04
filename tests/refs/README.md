@@ -32,8 +32,10 @@ A change to a reference hash without an explanation in the commit message is a P
 
 ## Inventory
 
-| File | Bytes | Source | Spec |
+| File | Source | Spec | Notes |
 |---|---|---|---|
-| `sine_skeleton_48k_256.sha256` | 1 hash | `sfs_render --sr 48000 --block 256 --seconds 1.0 --channels 2 --raw` of the Phase 0 skeleton AudioProcessor (continuous polynomial 440 Hz sine, ScopedNoDenormals, 7th-order Hastings dm_sin) | `sfs-spec/06 §2.2` |
+| `sine_skeleton_48k_256.sha256` | `sfs_render --sr 48000 --block 256 --seconds 1.0 --channels 2 --raw` with no MIDI | `sfs-spec/06 §2.2` | Now silence (Phase 1 plug-in plays nothing without MIDI). Hash is the SHA-256 of 384000 zero bytes; mismatching means the engine is leaking something into its output without a gate-on. |
+| `phase1_canonical_c4_48k_256.sha256` | `sfs_render … --note 60 --velocity 1.0` (default gate-off at duration/2) | sfs-spec/02 + 03 + 04 | The Phase 1 canonical engine render: substrate at default coefficients (c²=0.30, κ=0.05, γ=0.005), 16 sine agents at evenly spaced positions, mono harvester at substrate midpoint, MIDI C4 at velocity 1.0, 0.5 s sustain + 0.5 s decay tail. This is the audible Phase 1 acceptance render. |
 
-Phase 1 will add reference hashes for the 1D-substrate canonical contract presets (drone-degraded, pitched).
+Phase 1 will add reference hashes for the sonic-corner contract presets
+(drone-degraded, pitched) when the contract harness lands.

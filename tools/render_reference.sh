@@ -54,9 +54,22 @@ echo "Using render binary: $RENDER_BIN"
 # Render each canonical clip. The .wav is for human listening; the .raw is
 # the channel-interleaved float32 PCM used for the determinism hash per
 # sfs-spec/06 §2.2. Add new entries below as later phases land.
+
+# Engine self-test: no MIDI → engine plays silence. Hash should be 384000
+# zero bytes; useful for catching "engine accidentally always produces output"
+# regressions.
 "$RENDER_BIN" --sr 48000 --block 256 --seconds 1.0 --channels 2 \
     --out "${OUT_DIR}/sine_skeleton_48k_256.wav" \
     --raw "${OUT_DIR}/sine_skeleton_48k_256.raw"
+
+# Phase 1 canonical: C4 (MIDI 60), velocity 1.0, gate on at sample 0,
+# default gate-off at duration/2 (24000 samples = 0.5 s). Then 0.5 s of
+# substrate decay tail. Deposits-to-harvester via the 1D substrate; this
+# IS the Phase 1 sound test.
+"$RENDER_BIN" --sr 48000 --block 256 --seconds 1.0 --channels 2 \
+    --note 60 --velocity 1.0 \
+    --out "${OUT_DIR}/phase1_canonical_c4_48k_256.wav" \
+    --raw "${OUT_DIR}/phase1_canonical_c4_48k_256.raw"
 
 echo
 echo "Renders complete. Hash with:"
