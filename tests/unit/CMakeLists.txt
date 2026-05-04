@@ -26,8 +26,13 @@ set_target_properties (sfs_unit_tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
-# Register each TEST_CASE with CTest so `ctest` runs them individually and
-# parallel-friendly.
-catch_discover_tests (sfs_unit_tests
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-)
+# Register sfs_unit_tests as a single CTest entry. We deliberately don't use
+# catch_discover_tests because Catch2's POST_BUILD discovery misparses test
+# names that contain `[`, `(`, `,` or `)` — every nontrivial test name in
+# this project triggers it (e.g. "Philox4x32Stream::nextFloat01 is in [0, 1)").
+# The single-binary registration runs all 33 cases / 4395 assertions in one
+# invocation; granular per-test reporting still happens via Catch2's own
+# output, just not as separate CTest entries.
+add_test (NAME sfs_unit_tests
+          COMMAND sfs_unit_tests --reporter compact
+          WORKING_DIRECTORY ${CMAKE_BINARY_DIR})

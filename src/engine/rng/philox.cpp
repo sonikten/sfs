@@ -19,7 +19,9 @@
 #pragma GCC diagnostic ignored "-Wshadow"
 #elif defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable : 4244 4267 4456)
+#pragma warning(disable : 4127 4244 4267 4456)
+//                        ^^^^ conditional expression is constant (Random123/array.h)
+//                             ^^^^ ^^^^ ^^^^ narrowing conversions / shadowed local
 #endif
 
 #include <Random123/philox.h>
