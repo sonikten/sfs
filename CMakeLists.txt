@@ -50,6 +50,9 @@ option(SFS_BUILD_TOOLS    "Build CLI tools (sfs_render, wav_diff)" ON)
 option(SFS_BUILD_PLUGIN   "Build the VST3 plug-in target" ON)
 option(SFS_BUILD_ECO      "Lower-CPU defaults (per 08 §6 ECO mode)" OFF)
 option(SFS_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
+option(SFS_INSTALL_PLUGIN_AFTER_BUILD
+       "Copy SFS.vst3 to the OS user-level VST3 directory after each build (macOS / Linux / Windows)"
+       OFF)
 
 # ------------------------------------------------------------------------------
 # Compile flag interface libraries

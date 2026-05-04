@@ -58,7 +58,7 @@ juce_add_plugin (sfs_plugin
     NEEDS_MIDI_OUTPUT            FALSE
     IS_MIDI_EFFECT               FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS  FALSE
-    COPY_PLUGIN_AFTER_BUILD      FALSE
+    COPY_PLUGIN_AFTER_BUILD      ${SFS_INSTALL_PLUGIN_AFTER_BUILD}
     DESCRIPTION                  "Stigmergic Field Synthesis — Phase 0 skeleton"
     VST3_CATEGORIES              Instrument Synth
 )
