@@ -19,6 +19,7 @@ Checks: >
   readability-*,
   -bugprone-easily-swappable-parameters,
   -bugprone-narrowing-conversions,
+  -performance-enum-size,
   -cert-dcl21-cpp,
   -cert-err58-cpp,
   -cppcoreguidelines-avoid-c-arrays,
@@ -74,8 +75,11 @@ CheckOptions:
     value: camelBack
   - key:   readability-identifier-naming.MemberCase
     value: camelBack
+  # Private members carry a trailing underscore (Google / common C++ convention).
   - key:   readability-identifier-naming.PrivateMemberSuffix
-    value: ''
+    value: '_'
+  - key:   readability-identifier-naming.PrivateMemberCase
+    value: camelBack
   - key:   readability-identifier-naming.ConstexprVariableCase
     value: CamelCase
   - key:   readability-identifier-naming.ConstexprVariablePrefix

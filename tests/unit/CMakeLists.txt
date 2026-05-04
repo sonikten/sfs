@@ -4,11 +4,13 @@
 
 add_executable (sfs_unit_tests
     dm_sin_test.cpp
+    rng_philox_test.cpp
 )
 
 target_link_libraries (sfs_unit_tests
     PRIVATE
         SFS::Dsp
+        SFS::Engine::Rng
         SFS::DeterminismFlags
         SFS::StrictWarnings
         Catch2::Catch2WithMain

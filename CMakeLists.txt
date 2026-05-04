@@ -155,6 +155,12 @@ include(cmake/SimdConfig.cmake)
 # and link from tests.
 add_subdirectory(src/dsp)
 
+# Engine subsystems. Each subdirectory creates its own static library and the
+# engine glue (added in a later Phase 1 step) links them together. Adding
+# subsystems here in dependency order keeps the build narrow when only some
+# pieces are needed.
+add_subdirectory(src/engine/rng)
+
 # JUCE submodule lives at third_party/JUCE (pinned via tools/check_submodule_pins.sh).
 # Only wired in when the plug-in is being built — keeps DSP-only configures fast.
 if (SFS_BUILD_PLUGIN)
