@@ -205,6 +205,73 @@ TEST_CASE("Test vector 2: damping makes the substrate strictly less energetic", 
     REQUIRE(energyDamped < 100.0f);
 }
 
+TEST_CASE("Substrate AC content decays to silence — regression for DC-block-as-state bug",
+          "[substrate][1d][damping][regression]")
+{
+    // Bug history: an in-state DC blocker (sfs-spec/02 §6 "u[x] = u_blocked[x]")
+    // pumped energy into the substrate over multi-second horizons. The DC
+    // blocker now lives at the harvester output (Voice::renderBlock).
+    //
+    // What the wave equation alone guarantees: oscillatory (AC) content
+    // decays via γ. The DC component (spatial mean of u) is NOT damped by
+    // γ (Laplacian of constant = 0), so a one-sided deposit leaves a
+    // permanent DC offset in the substrate state. That's harmless audibly
+    // because Voice's DC blocker removes it from the harvester output;
+    // this test asserts the AC content (max |u - mean(u)|) decays.
+
+    constexpr int kN = 256;
+    Substrate1D s(kN, 48000.0f);
+    s.setCoefficients(0.30f, 0.05f, 0.005f); // matches Voice defaults
+    s.reset();
+    s.deposit(0.0f, 1.0f);
+    s.step();
+
+    auto acAmplitude = [](const Substrate1D& sub)
+    {
+        const auto* u = sub.displacement();
+        double mean = 0.0;
+        for (int x = 0; x < sub.size(); ++x)
+        {
+            mean += static_cast<double>(u[x]);
+        }
+        mean /= static_cast<double>(sub.size());
+        const float meanF = static_cast<float>(mean);
+        float peak = 0.0f;
+        for (int x = 0; x < sub.size(); ++x)
+        {
+            const float d = std::fabs(u[x] - meanF);
+            if (d > peak)
+            {
+                peak = d;
+            }
+        }
+        return peak;
+    };
+
+    const float acAt1ms = acAmplitude(s);
+    REQUIRE(acAt1ms > 0.0f);
+
+    // Run for 1 second with no further deposits.
+    for (int i = 0; i < 48000; ++i)
+    {
+        s.step();
+    }
+    const float acAt1s = acAmplitude(s);
+    CAPTURE(acAt1ms, acAt1s);
+    REQUIRE(std::isfinite(acAt1s));
+    REQUIRE(acAt1s < 0.01f * acAt1ms); // AC content must be ≪ initial after 1 s
+
+    // Continue for another 4 s; AC content must NOT grow back.
+    for (int i = 0; i < 4 * 48000; ++i)
+    {
+        s.step();
+    }
+    const float acAt5s = acAmplitude(s);
+    CAPTURE(acAt5s);
+    REQUIRE(std::isfinite(acAt5s));
+    REQUIRE(acAt5s <= acAt1s + 1e-6f); // monotone non-increasing
+}
+
 TEST_CASE("reset() returns u, v, and uInject to zero", "[substrate][1d][reset]")
 {
     Substrate1D s(128, 48000.0f);
