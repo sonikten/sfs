@@ -6,6 +6,8 @@ add_executable (sfs_unit_tests
     dm_sin_test.cpp
     rng_philox_test.cpp
     substrate_1d_test.cpp
+    agent_pool_test.cpp
+    voice_test.cpp
 )
 
 target_link_libraries (sfs_unit_tests
@@ -13,6 +15,8 @@ target_link_libraries (sfs_unit_tests
         SFS::Dsp
         SFS::Engine::Rng
         SFS::Engine::Substrate
+        SFS::Engine::Agents
+        SFS::Engine
         SFS::DeterminismFlags
         SFS::StrictWarnings
         Catch2::Catch2WithMain

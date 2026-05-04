@@ -28,6 +28,7 @@ target_include_directories (sfs_plugin_core PUBLIC
 target_link_libraries (sfs_plugin_core
     PUBLIC
         SFS::Dsp
+        SFS::Engine
         SFS::DeterminismFlags
         juce::juce_audio_processors
         juce::juce_audio_utils

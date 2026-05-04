@@ -1,21 +1,24 @@
 // src/plugin/PluginProcessor.h
 //
-// Phase 0 skeleton AudioProcessor: emits a continuous 440 Hz sine via the
-// polynomial dm_sin so the toolchain end-to-end (CMake + JUCE 8 + dm_sin +
-// VST3 wrapper) is exercised. No DSP engine, no presets, no GUI. The whole
-// purpose is to prove the build, the plug-in load, and the cross-platform
-// determinism contract before any synthesis code lands.
+// Phase 1: replaces the Phase 0 test-tone with a single Voice (substrate +
+// agent pool + harvester). Still mono internally; stereo output duplicates
+// the same harvester read across both channels. Polyphony arrives in P2.
 //
 // Hard invariants enforced here:
 //   * juce::ScopedNoDenormals at the top of processBlock sets FTZ/DAZ.
-//   * The sine is generated via sfs::dsp::dm_sin (NOT std::sin / std::sinf).
+//   * No std::sin / std::cos / std::sinf / std::cosf — all transcendentals
+//     in the audio path go through sfs::dsp::dm_*.
 //   * No juce::AudioProcessorValueTreeState. Parameters (when added in
-//     Phase 1+) will be raw juce::AudioProcessorParameter objects fed by
+//     Phase 2+) will be raw juce::AudioProcessorParameter objects fed by
 //     the SPSC ring buffer per sfs-spec/01_engine_architecture.md §4.4.
 
 #pragma once
 
+#include "engine/voice.h"
+
 #include <juce_audio_processors/juce_audio_processors.h>
+
+#include <memory>
 
 namespace sfs::plugin
 {
@@ -33,18 +36,18 @@ public:
 
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
 
-    // ----- Editor (none in Phase 0) ---------------------------------------
+    // ----- Editor (none in Phase 1; arrives at Phase 4) -------------------
     juce::AudioProcessorEditor* createEditor() override { return nullptr; }
     bool hasEditor() const override { return false; }
 
-    // ----- Identity --------------------------------------------------------
-    const juce::String getName() const override { return "SFS (Phase 0)"; }
+    // ----- Identity -------------------------------------------------------
+    const juce::String getName() const override { return "SFS (Phase 1)"; }
 
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
 
-    double getTailLengthSeconds() const override { return 0.0; }
+    double getTailLengthSeconds() const override { return 5.0; } // substrate decay tail
 
     // ----- Programs (placeholder) -----------------------------------------
     int getNumPrograms() override { return 1; }
@@ -53,17 +56,18 @@ public:
     const juce::String getProgramName(int) override { return {}; }
     void changeProgramName(int, const juce::String&) override {}
 
-    // ----- State (no-op in Phase 0; preset format arrives in Phase 4) ------
+    // ----- State (no-op until preset format lands at P4) ------------------
     void getStateInformation(juce::MemoryBlock&) override {}
     void setStateInformation(const void*, int) override {}
 
 private:
-    static constexpr float kTestToneFrequencyHz = 440.0f;
-    static constexpr float kTestToneAmplitude = 0.05f; // ~−26 dBFS, quiet on load
+    static constexpr int kSubstrateCells = 1024;
+    static constexpr int kAgentCount = 16;
 
-    double sampleRate_ = 48000.0;
-    float phase_ = 0.0f;
-    float phaseInc_ = 0.0f;
+    // Owned by prepareToPlay so we can size to the host sample rate. Lives
+    // for the duration of [setActive(true), setActive(false)]. Allocations
+    // happen here (block-rate context), NOT inside processBlock.
+    std::unique_ptr<sfs::engine::Voice> voice_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SfsAudioProcessor)
 };

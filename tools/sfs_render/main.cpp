@@ -40,6 +40,15 @@ struct RenderOptions
     int numChannels = 2;
     std::string outputPath = "sine_skeleton_48k_256.wav";
     std::string rawOutputPath; // when non-empty, also write raw channel-interleaved float32 PCM
+
+    // MIDI gate. <0 disables (renders silence — useful for engine self-test).
+    // Default matches the Phase 0 era when there was no engine; Phase 1 uses
+    // --note 60 (C4) to actually play through the engine.
+    int midiNote = -1;
+    float midiVelocity = 1.0f;
+    // Gate on/off as sample indices. -1 means "at start" / "never (gate held)".
+    juce::int64 gateOnSample = 0;
+    juce::int64 gateOffSample = -1;
 };
 
 void printUsage()
@@ -47,13 +56,21 @@ void printUsage()
     std::fprintf(stderr,
                  "usage: sfs_render [--sr <hz>] [--block <n>] [--seconds <s>]\n"
                  "                  [--channels <n>] [--out <path>] [--raw <path>]\n"
+                 "                  [--note <midi>] [--velocity <0-1>]\n"
+                 "                  [--gate-on-sample <N>] [--gate-off-sample <N>]\n"
                  "\n"
-                 "Phase 0 headless render of the SFS skeleton plug-in. Defaults:\n"
+                 "Headless render of the SFS plug-in. Defaults:\n"
                  "  --sr 48000  --block 256  --seconds 1.0  --channels 2\n"
                  "  --out sine_skeleton_48k_256.wav\n"
-                 "  --raw <none>     when set, also write channel-interleaved float32\n"
-                 "                   PCM (no header) to <path> for hashing per spec\n"
-                 "                   sfs-spec/06 §2.2.\n");
+                 "  --raw <none>      when set, also write channel-interleaved float32\n"
+                 "                    PCM (no header) to <path> for hashing per spec\n"
+                 "                    sfs-spec/06 §2.2.\n"
+                 "  --note <none>     when set, send a MIDI note-on at gate-on-sample\n"
+                 "                    and a note-off at gate-off-sample. With no\n"
+                 "                    --note, the engine plays silence (no MIDI).\n"
+                 "  --velocity 1.0\n"
+                 "  --gate-on-sample 0\n"
+                 "  --gate-off-sample <duration/2 in samples; -1 holds gate>\n");
 }
 
 bool parseArgs(int argc, char** argv, RenderOptions& opts)
@@ -118,6 +135,37 @@ bool parseArgs(int argc, char** argv, RenderOptions& opts)
                 return false;
             }
             opts.rawOutputPath = argv[i];
+        }
+        else if (arg == "--note")
+        {
+            double tmp = 0;
+            if (!next(&tmp, &opts.midiNote))
+                return false;
+        }
+        else if (arg == "--velocity")
+        {
+            double v = 0;
+            if (!next(&v))
+                return false;
+            opts.midiVelocity = static_cast<float>(v);
+        }
+        else if (arg == "--gate-on-sample")
+        {
+            if (++i >= argc)
+            {
+                std::fprintf(stderr, "sfs_render: missing value for --gate-on-sample\n");
+                return false;
+            }
+            opts.gateOnSample = static_cast<juce::int64>(std::atoll(argv[i]));
+        }
+        else if (arg == "--gate-off-sample")
+        {
+            if (++i >= argc)
+            {
+                std::fprintf(stderr, "sfs_render: missing value for --gate-off-sample\n");
+                return false;
+            }
+            opts.gateOffSample = static_cast<juce::int64>(std::atoll(argv[i]));
         }
         else if (arg == "-h" || arg == "--help")
         {
@@ -225,15 +273,40 @@ int main(int argc, char** argv)
     }
 
     juce::AudioBuffer<float> buffer(opts.numChannels, opts.blockSize);
-    juce::MidiBuffer midi;
 
     const auto totalSamples = static_cast<juce::int64>(opts.durationSec * opts.sampleRate + 0.5);
+
+    // Default gate-off to halfway through, so we get 50% sustain + 50% release tail.
+    if (opts.midiNote >= 0 && opts.gateOffSample < 0)
+    {
+        opts.gateOffSample = totalSamples / 2;
+    }
+
     juce::int64 written = 0;
 
     while (written < totalSamples)
     {
         const int n = static_cast<int>(std::min<juce::int64>(opts.blockSize, totalSamples - written));
         buffer.clear();
+
+        // Build the MIDI buffer for this block: note-on / note-off events that
+        // fall within [written, written + n) become offsets within this block.
+        juce::MidiBuffer midi;
+        if (opts.midiNote >= 0)
+        {
+            const juce::int64 onAbs = opts.gateOnSample;
+            const juce::int64 offAbs = opts.gateOffSample;
+            if (onAbs >= written && onAbs < written + n)
+            {
+                midi.addEvent(juce::MidiMessage::noteOn(1, opts.midiNote, opts.midiVelocity),
+                              static_cast<int>(onAbs - written));
+            }
+            if (offAbs >= 0 && offAbs >= written && offAbs < written + n)
+            {
+                midi.addEvent(juce::MidiMessage::noteOff(1, opts.midiNote), static_cast<int>(offAbs - written));
+            }
+        }
+
         processor.processBlock(buffer, midi);
         writer->writeFromAudioSampleBuffer(buffer, 0, n);
 
