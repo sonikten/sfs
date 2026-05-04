@@ -65,10 +65,10 @@ A *toolchain* sanity check at end of Phase 0:
 
 From `sfs-spec/08_implementation_roadmap.md` §1, Phase 0 gate (extended to four platforms per the locked strategic choice). Status as of the latest commit:
 
-- [ ] CI green on `macos-14`, `windows-2022`, `ubuntu-22.04`. (`macos-13` Intel runner dropped from v1.0 — runner pool was perma-starved and Apple Silicon is the platform the spec author plans to ship from anyway. Cross-architecture verification still spans ARM64 (macOS) + x86_64 (Win/Linux), which is the meaningful test.) *(pending — first full matrix run after macos-13 removal)*
-- [ ] Skeleton VST3 loads in REAPER on each platform and plays a polynomial 440 Hz sine. *(verified macOS arm64 locally; Win/Linux manual checks pending)*
-- [ ] `tests/refs/sine_skeleton_48k_256.sha256` hash-matches across all 3 platforms (artifacts uploaded; `determinism-compare` job green). *(pending; first cross-platform consensus hash gets locked in once `determinism.yml` is green)*
-- [ ] pluginval Level 1 clean on all 3 platforms. *(pending — `pluginval.yml` v1.0.4)*
+- [x] CI green on `macos-14`, `windows-2022`, `ubuntu-22.04` for commit `d94b544`. (`macos-13` Intel runner was dropped from v1.0 — runner pool was perma-starved on this account, and cross-architecture verification still spans ARM64 (macOS) + x86_64 (Win/Linux), which is the meaningful test for catching libm/SIMD/RNG drift.)
+- [ ] Skeleton VST3 loads in REAPER on each platform and plays a polynomial 440 Hz sine. *(verified macOS arm64 locally; Win/Linux manual checks pending — pluginval green on all 3 in CI; full DAW load is a manual checkpoint deferred to your next session in those hosts.)*
+- [x] `tests/refs/sine_skeleton_48k_256.sha256` hash-matches across all 3 platforms — locked in at `0791b4c6abc45f41920b393db935bfcad4046f27b57db770eebe1ab21c580500`. (`determinism-compare` job green for commit `d94b544`.)
+- [x] pluginval Level 1 clean on all 3 platforms (`pluginval.yml` v1.0.4) for commit `d94b544`.
 - [x] `clang-format --dry-run --Werror` job in `ci.yml` (Linux) — clean on landed files; pending the actual matrix run.
 - [x] All 5 submodules pinned to tagged releases; `tools/check_submodule_pins.sh` green locally and wired into CI.
 - [x] No use of `std::sin`/`std::cos`/`std::exp`/`std::log`/`std::mt19937`/`std::default_random_engine`/`rand()`/`random()`/`AudioProcessorValueTreeState` in `src/` — `tools/check_determinism.sh` green locally and wired into CI.
@@ -85,7 +85,7 @@ From `sfs-spec/08_implementation_roadmap.md` §1, Phase 0 gate (extended to four
 
 1. Repo skeleton (`.gitignore`, `.clang-format`, `.clang-tidy`, `README.md`, `docs/phase-plans/phase-0.md`). **Done.**
 2. Top-level `CMakeLists.txt` with C++20, `-fno-fast-math` / `/fp:precise`, `-Werror` / `/WX`; split into `SFS::DeterminismFlags` and `SFS::StrictWarnings`. **Done.**
-3. GitHub Actions 4-platform matrix (`macos-13`, `macos-14`, `windows-2022`, `ubuntu-22.04`). **Done** (`ci.yml`).
+3. GitHub Actions 3-platform matrix (`macos-14`, `windows-2022`, `ubuntu-22.04`). **Done** (`ci.yml`). Originally included `macos-13` (Intel) but the runner pool was perma-starved; Intel macOS dropped from v1.0.
 4. Submodules pinned: JUCE 8.0.4, Catch2 v3.7.1, Random123 v1.14.0, SIMDe v0.8.2, nlohmann/json v3.11.3 + `tools/check_submodule_pins.sh`. **Done.**
 5. `cmake/SimdConfig.cmake`. **Done.**
 6. Skeleton VST3 with 7th-order Hastings `dm_sin` 440 Hz tone, `juce::ScopedNoDenormals` for FTZ/DAZ, raw `AudioProcessorParameter`s only. **Done.**
