@@ -37,7 +37,9 @@ struct Agent
     float amplitude = 1.0f;      // [0, 1]
     float envelope = 0.0f;       // gate envelope, [0, 1]; binary on/off in Phase 1
     float depositWeight = 0.05f; // w_i — sfs-spec/09 default 0.05/sqrt(activeCount)
-    float modSensitivity = 0.5f; // m_i — substrate→frequency coupling, [0, 1]
+    float modSensitivity = 0.2f; // m_i — substrate→frequency coupling, [0, 1]
+    float migrationRate = 0.0f;  // r_i — cells/sample drift; Phase 1 deterministic,
+                                 // Phase 2 adds Gaussian ε_i per spec §5
 };
 
 class AgentPool

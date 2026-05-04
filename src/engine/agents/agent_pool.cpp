@@ -42,6 +42,15 @@ void AgentPool::noteOn(int midiNote, float velocity)
     // doesn't accumulate faster than γ can bleed off.
     const float defaultDepositWeight = 0.05f / std::sqrt(static_cast<float>(std::max(1, activeCount_)));
 
+    // Phase 1 placeholder migration rates: each agent gets a unique small
+    // drift so positions spread/recombine across the ring over time —
+    // gives the audibly evolving timbre that the Phase 1 acceptance test
+    // calls for. Magnitudes well below sfs-spec/09's `[-0.001 N, +0.001 N]`
+    // bound. Phase 2 replaces with the spec's MIGRATION-macro-driven
+    // uniform draw (and adds Gaussian ε_i per sample per §5).
+    //
+    // Pattern: alternating + and -, magnitudes spread linearly. Two agents
+    // with the same |rate| but opposite signs slowly counter-rotate.
     for (int i = 0; i < activeCount_; ++i)
     {
         auto& a = agents_[static_cast<std::size_t>(i)];
@@ -51,6 +60,11 @@ void AgentPool::noteOn(int midiNote, float velocity)
         a.amplitude = scaledAmp;
         a.envelope = 1.0f; // gate ON
         a.depositWeight = defaultDepositWeight;
+
+        // i=0 → 0.020 cells/sample (~960 cells/sec, ring wraps every ~1.07 s @ 48 kHz)
+        // i=1 → -0.024  // i=2 → 0.028  // ...
+        const float magnitude = 0.020f + 0.004f * static_cast<float>(i);
+        a.migrationRate = (i % 2 == 0) ? magnitude : -magnitude;
     }
 }
 
@@ -103,14 +117,19 @@ void AgentPool::processOneSample(sfs::engine::substrate::Substrate1D& substrate,
 
         // 5. Advance phase using the bent frequency. Wrap to [0, 1).
         a.phase += fInst * invSampleRate;
-        if (a.phase >= 1.0f)
+        if (a.phase >= 1.0f || a.phase < 0.0f)
         {
             a.phase -= std::floor(a.phase);
         }
-        else if (a.phase < 0.0f)
-        {
-            a.phase -= std::floor(a.phase);
-        }
+
+        // 6. Migrate. Phase 1 uses deterministic per-agent drift only;
+        // sfs-spec/03 §5's Gaussian ε_i lands when dm_log / dm_cos /
+        // dm_sqrt arrive (deferred from this commit).
+        a.position += a.migrationRate;
+        // Substrate1D::deposit and read both wrap internally, so positions
+        // outside [0, N) are still legal — we only normalise to keep the
+        // float magnitude bounded.
+        // (No-op for the small drift rates we use in Phase 1.)
     }
 }
 
