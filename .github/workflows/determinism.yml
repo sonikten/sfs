@@ -54,6 +54,10 @@ jobs:
             libxinerama-dev libxrandr-dev libxrender-dev \
             libwebkit2gtk-4.1-dev libglu1-mesa-dev mesa-common-dev
 
+      - name: Fetch tags inside submodules (checkout is shallow)
+        shell: bash
+        run: git submodule foreach --recursive 'git fetch --tags --quiet origin || true'
+
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSFS_BUILD_PLUGIN=ON -DSFS_BUILD_TOOLS=ON -DSFS_BUILD_TESTS=OFF
 
@@ -64,15 +68,16 @@ jobs:
         shell: bash
         run: tools/render_reference.sh build/ref_renders
 
-      - name: Hash WAV
+      - name: Hash raw PCM frames (determinism contract surface)
         shell: bash
-        run: tools/hash_wav.sh build/ref_renders/*.wav | tee build/ref_renders/hashes.txt
+        run: tools/hash_pcm.sh build/ref_renders/*.raw | tee build/ref_renders/hashes.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: render-${{ matrix.slug }}
           path: |
+            build/ref_renders/*.raw
             build/ref_renders/*.wav
             build/ref_renders/hashes.txt
           retention-days: 14

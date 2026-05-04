@@ -82,8 +82,8 @@ TEST_CASE("dm_sin sentinel values", "[dsp][dm_sin]")
 {
     // Standard sine identities; no range reduction required.
     REQUIRE(sfs::dsp::dm_sin(0.0f) == Catch::Approx(0.0f).margin(1e-7f));
-    REQUIRE(sfs::dsp::dm_sin(kPi)         == Catch::Approx( 0.0f).margin(3e-6f));
-    REQUIRE(sfs::dsp::dm_sin(kPi  / 2.0f) == Catch::Approx( 1.0f).margin(3e-6f));
+    REQUIRE(sfs::dsp::dm_sin(kPi) == Catch::Approx(0.0f).margin(3e-6f));
+    REQUIRE(sfs::dsp::dm_sin(kPi / 2.0f) == Catch::Approx(1.0f).margin(3e-6f));
     REQUIRE(sfs::dsp::dm_sin(-kPi / 2.0f) == Catch::Approx(-1.0f).margin(3e-6f));
 }
 

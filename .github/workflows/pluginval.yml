@@ -60,6 +60,10 @@ jobs:
             libxinerama-dev libxrandr-dev libxrender-dev \
             libwebkit2gtk-4.1-dev libglu1-mesa-dev mesa-common-dev
 
+      - name: Fetch tags inside submodules (checkout is shallow)
+        shell: bash
+        run: git submodule foreach --recursive 'git fetch --tags --quiet origin || true'
+
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSFS_BUILD_PLUGIN=ON
 

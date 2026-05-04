@@ -64,6 +64,10 @@ jobs:
             libglu1-mesa-dev \
             mesa-common-dev
 
+      - name: Fetch tags inside submodules (checkout is shallow)
+        shell: bash
+        run: git submodule foreach --recursive 'git fetch --tags --quiet origin || true'
+
       - name: Verify submodule pins
         shell: bash
         run: tools/check_submodule_pins.sh
