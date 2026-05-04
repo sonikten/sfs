@@ -166,6 +166,7 @@ endif()
 # Gated behind SFS_BUILD_TOOLS so a DSP-only configure stays JUCE-free.
 if (SFS_BUILD_TOOLS AND SFS_BUILD_PLUGIN)
     add_subdirectory(tools/sfs_render)
+    add_subdirectory(tools/wav_diff)
 endif()
 
 # ------------------------------------------------------------------------------
