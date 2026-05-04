@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# tools/git-hooks/pre-commit
+#
+# Reject the commit if any first-party staged C/C++ file has formatting drift.
+# Mirrors the CI clang-format check so contributors fail locally rather than
+# in CI. Install with:  tools/git-hooks/install.sh
+
+set -euo pipefail
+
+if ! command -v clang-format >/dev/null 2>&1; then
+    echo "pre-commit: clang-format not on PATH; skipping format check." >&2
+    exit 0
+fi
+
+# Staged files matching first-party C/C++ paths.
+mapfile -t files < <(git diff --cached --name-only --diff-filter=ACMR \
+    -- '*.cpp' '*.cxx' '*.cc' '*.c' '*.h' '*.hpp' '*.hxx' \
+    | grep -E '^(src|tools|tests)/' \
+    | grep -v '^third_party/' \
+    || true)
+
+if [ "${#files[@]}" -eq 0 ]; then
+    exit 0
+fi
+
+bad=()
+for f in "${files[@]}"; do
+    if ! clang-format --dry-run --Werror --style=file "$f" 2>/dev/null; then
+        bad+=("$f")
+    fi
+done
+
+if [ "${#bad[@]}" -gt 0 ]; then
+    echo
+    echo "pre-commit: the following files need clang-format:" >&2
+    for f in "${bad[@]}"; do
+        echo "  $f" >&2
+    done
+    echo
+    echo "Fix with:  clang-format -i ${bad[*]}" >&2
+    exit 1
+fi
+
+exit 0
