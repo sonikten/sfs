@@ -179,6 +179,7 @@ endif()
 
 if (SFS_BUILD_TESTS)
     enable_testing()
+    add_subdirectory(tests)
 endif()
 
 message(STATUS "SFS ${PROJECT_VERSION} — configured for ${CMAKE_BUILD_TYPE}")
