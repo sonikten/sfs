@@ -1,0 +1,119 @@
+name: pluginval
+
+# Pluginval VST3 validation gate (Phase 0 step 9). Level 1 baseline at Phase 0;
+# escalates per `08 §3` — Level 5 per push starting Phase 2 (when the engine
+# does real DSP), Level 10 only on release-candidate tags.
+#
+# Pluginval downloads from Tracktion's nightly release page; we pin to a known
+# tag so the validator version doesn't drift independently of our CI.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PLUGINVAL_VERSION: v1.0.4   # bump in lockstep with phase-plan when intentional
+  PLUGINVAL_LEVEL: "1"        # Phase 0 baseline; raise as engine matures
+
+jobs:
+  validate:
+    name: pluginval (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13
+            asset: pluginval_macOS.zip
+            bin: pluginval.app/Contents/MacOS/pluginval
+          - os: macos-14
+            asset: pluginval_macOS.zip
+            bin: pluginval.app/Contents/MacOS/pluginval
+          - os: windows-2022
+            asset: pluginval_Windows.zip
+            bin: pluginval.exe
+          - os: ubuntu-22.04
+            asset: pluginval_Linux.zip
+            bin: pluginval
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux audio + GUI dev packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev libjack-jackd2-dev ladspa-sdk \
+            libcurl4-openssl-dev libfreetype6-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev \
+            libwebkit2gtk-4.1-dev libglu1-mesa-dev mesa-common-dev
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSFS_BUILD_PLUGIN=ON
+
+      - name: Build VST3
+        run: cmake --build build --target sfs_plugin_VST3 --config Release --parallel
+
+      - name: Download pluginval
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/pluginval
+          cd build/pluginval
+          curl -fSL -o pluginval.zip \
+            "https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_VERSION}/${{ matrix.asset }}"
+          unzip -q pluginval.zip
+          # Make executable on Unix.
+          if [ "$RUNNER_OS" != "Windows" ]; then
+            chmod +x "${{ matrix.bin }}"
+          fi
+
+      - name: Locate VST3 bundle
+        id: locate_vst3
+        shell: bash
+        run: |
+          set -euo pipefail
+          # JUCE writes the VST3 here; macOS gives a .vst3 bundle, Win/Linux a .vst3 file.
+          path=$(find build -name "SFS.vst3" -print -quit)
+          if [ -z "$path" ]; then
+              echo "ERROR: SFS.vst3 not found under build/" >&2
+              find build -name "*.vst3" >&2 || true
+              exit 1
+          fi
+          echo "vst3=$path" >> "$GITHUB_OUTPUT"
+          echo "Found VST3: $path"
+
+      - name: Run pluginval Level ${{ env.PLUGINVAL_LEVEL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="build/pluginval/${{ matrix.bin }}"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+              # macOS may quarantine downloaded binaries; clear the attribute.
+              xattr -dr com.apple.quarantine "build/pluginval/pluginval.app" || true
+          fi
+          "$BIN" --strictness-level "${PLUGINVAL_LEVEL}" \
+                 --validate-in-process \
+                 --skip-gui-tests \
+                 --output-dir build/pluginval/logs \
+                 "${{ steps.locate_vst3.outputs.vst3 }}"
+
+      - name: Upload pluginval logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pluginval-logs-${{ matrix.os }}
+          path: build/pluginval/logs/
+          retention-days: 7
