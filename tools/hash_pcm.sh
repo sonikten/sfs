@@ -40,4 +40,8 @@ if [ "$1" = "--check" ]; then
     exec $SHA --check "$1"
 fi
 
-exec $SHA "$@"
+# Normalise the output across platforms. Windows' shasum / sha256sum default
+# to binary mode (output: "hash *file"); Unix defaults to text mode
+# ("hash  file"). The actual hash is identical either way; we just rewrite
+# the separator so downstream diffs (determinism.yml) compare cleanly.
+$SHA "$@" | sed 's/ \*/  /'
