@@ -61,9 +61,14 @@ void AgentPool::noteOn(int midiNote, float velocity)
         a.envelope = 1.0f; // gate ON
         a.depositWeight = defaultDepositWeight;
 
-        // i=0 → 0.020 cells/sample (~960 cells/sec, ring wraps every ~1.07 s @ 48 kHz)
-        // i=1 → -0.024  // i=2 → 0.028  // ...
-        const float magnitude = 0.020f + 0.004f * static_cast<float>(i);
+        // i=0 → 0.0020 cells/sample (~96 cells/sec, ring wraps every ~10 s
+        // for the slowest agent at 48 kHz). 10× smaller than the first attempt:
+        // moving agents inject fresh energy into still-undamped substrate
+        // cells, so high migration rates push the system into a self-pumping
+        // regime that the static-position version never hit. Combined with
+        // the Voice output saturator, this keeps Phase 1 audible without
+        // needing aggressive output limiting.
+        const float magnitude = 0.0020f + 0.0004f * static_cast<float>(i);
         a.migrationRate = (i % 2 == 0) ? magnitude : -magnitude;
     }
 }

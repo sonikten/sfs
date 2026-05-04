@@ -4,8 +4,36 @@
 
 #include "voice.h"
 
+#include <cmath>
+
 namespace sfs::engine
 {
+
+namespace
+{
+
+// Phase 1 output-stage saturator. The full sfs-spec/04 §4 output chain
+// (master gain + dm_tanh saturator + DC block + optional limiter) lands
+// in Phase 2 / Phase 4; for Phase 1 a rational soft-clip keeps the
+// substrate's natural amplitude swings inside (-1, 1) without needing
+// dm_tanh. x / (1 + |x|) is C¹, monotonic, and bounded.
+//
+//   x = 0.0 → 0.0   (linear at small signals)
+//   x = 0.5 → 0.333 (gentle compression)
+//   x = 1.0 → 0.5
+//   x = 2.0 → 0.667
+//   x = 5.0 → 0.833 (asymptote toward ±1)
+//
+// Pre-gain is intentionally < 1 so the typical Phase 1 substrate
+// amplitude (RMS ≈ 0.6 raw) lands at perceived RMS ≈ 0.3 after clip.
+constexpr float kOutputPreGain = 0.5f;
+
+[[nodiscard]] inline float softClip(float x) noexcept
+{
+    return x / (1.0f + std::fabs(x));
+}
+
+} // namespace
 
 Voice::Voice(int substrateCells, int agentCount, float sampleRate)
     : substrate_(substrateCells, sampleRate), agents_(agentCount), sampleRate_(sampleRate)
@@ -46,7 +74,7 @@ void Voice::renderBlock(float* out, int numSamples) noexcept
     {
         agents_.processOneSample(substrate_, sampleRate_);
         substrate_.step();
-        out[i] = substrate_.read(pos);
+        out[i] = softClip(kOutputPreGain * substrate_.read(pos));
     }
 }
 
