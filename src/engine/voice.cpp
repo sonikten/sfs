@@ -12,6 +12,9 @@ namespace sfs::engine
 namespace
 {
 
+constexpr float kPi = 3.14159265358979323846f;
+constexpr float kDcCutoffHz = 5.0f;
+
 // Phase 1 output-stage saturator. The full sfs-spec/04 §4 output chain
 // (master gain + dm_tanh saturator + DC block + optional limiter) lands
 // in Phase 2 / Phase 4; for Phase 1 a rational soft-clip keeps the
@@ -44,6 +47,9 @@ Voice::Voice(int substrateCells, int agentCount, float sampleRate)
     substrate_.setCoefficients(0.30f, 0.05f, 0.005f);
     agents_.layoutEvenly(substrateCells);
 
+    // DC blocker α from the host sample rate (sfs-spec/02 §6).
+    dcBlockerAlpha_ = 1.0f - 2.0f * kPi * kDcCutoffHz / sampleRate_;
+
     // Mono harvester at the midpoint of the ring — maximally separated from
     // any single-agent deposit at position 0 so the substrate has to actually
     // propagate the wave to be heard.
@@ -70,12 +76,21 @@ void Voice::renderBlock(float* out, int numSamples) noexcept
     }
 
     const float pos = harvesterPosition_;
+    const float a = dcBlockerAlpha_;
+    float prevIn = dcBlockerLastInput_;
+    float prevOut = dcBlockerLastOutput_;
     for (int i = 0; i < numSamples; ++i)
     {
         agents_.processOneSample(substrate_, sampleRate_);
         substrate_.step();
-        out[i] = softClip(kOutputPreGain * substrate_.read(pos));
+        const float raw = substrate_.read(pos);
+        const float blocked = raw - prevIn + a * prevOut; // first-order DC block
+        prevIn = raw;
+        prevOut = blocked;
+        out[i] = softClip(kOutputPreGain * blocked);
     }
+    dcBlockerLastInput_ = prevIn;
+    dcBlockerLastOutput_ = prevOut;
 }
 
 } // namespace sfs::engine

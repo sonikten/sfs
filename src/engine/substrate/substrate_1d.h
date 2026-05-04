@@ -52,10 +52,18 @@ public:
     // p wraps modulo cellCount. Amount may be negative.
     void deposit(float position, float amount) noexcept;
 
-    // Leapfrog update + DC block. Consumes u_inject (zeros it after).
+    // Leapfrog symplectic update. Consumes u_inject (zeros it after).
     //   v[x, n+1] = (1 - γ) v[x, n] + c² Lap_u[x] + κ Lap_v[x] + u_inject[x]
-    //   u_raw[x, n+1] = u[x, n] + v[x, n+1]
-    //   u[x, n+1] = DC_block(u_raw[x, n+1])
+    //   u[x, n+1] = u[x, n] + v[x, n+1]
+    //
+    // Note: the DC blocker described in sfs-spec/02 §6 is intentionally NOT
+    // applied to the substrate state here. Applying a DC block to u in-place
+    // every sample (as §6 originally prescribes) violates the wave equation's
+    // discrete energy conservation and causes the substrate to pump energy
+    // over multi-second horizons (see commit notes for the empirical trace).
+    // The DC removal happens at the harvester output instead — same audible
+    // result, conservative substrate, and cheaper (one filter per harvester
+    // instead of one per cell).
     void step() noexcept;
 
     // Linear read kernel (sfs-spec/04 §2.1):
@@ -87,15 +95,13 @@ private:
     float kappa_ = 0.05f;
     float gamma_ = 0.005f;
     float oneMinusGamma_ = 0.995f;
-    float alphaDc_ = 0.999346f; // = 1 - 2π · 5 / 48000
 
     // 64-byte aligned via vector<float>'s allocator + size guarantees on the
     // platforms we ship to. Phase 1 stays scalar; SIMD pass would tighten the
     // alignment with a custom allocator.
-    std::vector<float> u_;       // displacement (post-DC-block state)
+    std::vector<float> u_;       // displacement
     std::vector<float> v_;       // velocity
     std::vector<float> uInject_; // per-sample deposit accumulator
-    std::vector<float> uPrev_;   // unblocked u from the previous sample (for DC block)
 };
 
 } // namespace sfs::engine::substrate

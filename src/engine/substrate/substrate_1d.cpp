@@ -16,8 +16,8 @@ namespace sfs::engine::substrate
 namespace
 {
 
-constexpr float kPi = 3.14159265358979323846f;
-constexpr float kDcCutoffHz = 5.0f;
+// (DC blocker constants live in voice.cpp now — DC removal happens at the
+// harvester output, not on the substrate state.)
 
 // Used in the constructor's assert; under NDEBUG (release builds) the assert
 // compiles away and this would be dead code without [[maybe_unused]].
@@ -34,12 +34,10 @@ Substrate1D::Substrate1D(int cellCount, float sampleRate)
       sampleRate_(sampleRate),
       u_(static_cast<std::size_t>(cellCount), 0.0f),
       v_(static_cast<std::size_t>(cellCount), 0.0f),
-      uInject_(static_cast<std::size_t>(cellCount), 0.0f),
-      uPrev_(static_cast<std::size_t>(cellCount), 0.0f)
+      uInject_(static_cast<std::size_t>(cellCount), 0.0f)
 {
     assert(isPowerOfTwo(cellCount) && cellCount >= kMinCells && cellCount <= kMaxCells);
     assert(sampleRate > 0.0f);
-    alphaDc_ = 1.0f - 2.0f * kPi * kDcCutoffHz / sampleRate_;
     setCoefficients(c2_, kappa_, gamma_);
 }
 
@@ -48,7 +46,6 @@ void Substrate1D::reset() noexcept
     std::fill(u_.begin(), u_.end(), 0.0f);
     std::fill(v_.begin(), v_.end(), 0.0f);
     std::fill(uInject_.begin(), uInject_.end(), 0.0f);
-    std::fill(uPrev_.begin(), uPrev_.end(), 0.0f);
 }
 
 void Substrate1D::setCoefficients(float c2, float kappa, float gamma) noexcept
@@ -105,13 +102,10 @@ void Substrate1D::step() noexcept
     const float c2 = c2_;
     const float kp = kappa_;
     const float omg = oneMinusGamma_;
-    const float a = alphaDc_;
 
-    // Working buffers — restrict-style aliases for clarity.
     auto* const u = u_.data();
     auto* const v = v_.data();
     auto* const uInject = uInject_.data();
-    auto* const uPrev = uPrev_.data();
 
     // Two-pass to keep the v Laplacian reading the OLD v values, not the
     // newly-updated ones. Phase 1 uses a temporary array; Phase 2's SIMD
@@ -129,17 +123,15 @@ void Substrate1D::step() noexcept
         vNew[x] = omg * v[x] + c2 * lapU + kp * lapV + uInject[x];
     }
 
-    // Phase B: integrate u, apply DC block, swap state.
+    // Phase B: integrate u, commit v. NO DC block here — that lives at the
+    // harvester output (Voice::renderBlock) so the substrate state stays
+    // conservative under the wave equation's energy theorem.
     for (int x = 0; x < N; ++x)
     {
-        const float uRawX = u[x] + vNew[x];                  // unblocked
-        const float uBlockedX = uRawX - uPrev[x] + a * u[x]; // u[x] is still last sample's blocked u
-        uPrev[x] = uRawX;
-        u[x] = uBlockedX;
+        u[x] += vNew[x];
         v[x] = vNew[x];
     }
 
-    // Zero the deposit accumulator for the next sample.
     std::fill(uInject_.begin(), uInject_.end(), 0.0f);
 }
 

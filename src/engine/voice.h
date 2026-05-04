@@ -52,6 +52,14 @@ private:
     float sampleRate_;
     float harvesterPosition_ = 0.0f;
     bool gated_ = false;
+
+    // DC blocker state for the harvester read (sfs-spec/02 §6 — applied at
+    // the output, not on the substrate state). First-order high-pass:
+    //   y[n] = x[n] - x[n-1] + α·y[n-1]
+    // α derived from sampleRate at construction.
+    float dcBlockerAlpha_ = 0.999346f; // 1 - 2π·5/48000
+    float dcBlockerLastInput_ = 0.0f;  // x[n-1]
+    float dcBlockerLastOutput_ = 0.0f; // y[n-1]
 };
 
 } // namespace sfs::engine
