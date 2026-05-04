@@ -29,8 +29,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-13
-            slug: macos-x86_64
+          # Intel macOS dropped from v1.0 — Apple Silicon only on macOS.
           - os: macos-14
             slug: macos-arm64
           - os: windows-2022
@@ -108,8 +107,8 @@ jobs:
           # Extract just the 64-char hex hashes from each platform.
           # Sort, uniq -c — we expect exactly one unique hash per filename.
           mapfile -t platforms < <(ls -d artifacts/render-*/ | sort)
-          if [ "${#platforms[@]}" -ne 4 ]; then
-              echo "ERROR: expected 4 platform artifacts, got ${#platforms[@]}." >&2
+          if [ "${#platforms[@]}" -ne 3 ]; then
+              echo "ERROR: expected 3 platform artifacts (macos-arm64, windows-x86_64, linux-x86_64), got ${#platforms[@]}." >&2
               exit 1
           fi
 
@@ -143,4 +142,4 @@ jobs:
           fi
 
           echo
-          echo "All ${#wav_names[@]} reference clip(s) hash-match across all 4 platforms."
+          echo "All ${#wav_names[@]} reference clip(s) hash-match across all 3 platforms."

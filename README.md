@@ -30,7 +30,11 @@ Locked in `sfs-spec/08_implementation_roadmap.md`:
 
 ## Determinism contract
 
-The same preset and MIDI input produce **bit-identical** audio across macOS x64, macOS arm64, Windows x64, and Linux x64. This is enforced in CI on every push. See `sfs-spec/01_engine_architecture.md` §9 and `sfs-spec/06_rng_presets.md` §1 for the contract; see `cmake/DeterminismChecks.cmake` (added during Phase 0) for the enforcement mechanism.
+The same preset and MIDI input produce **bit-identical** audio across macOS arm64, Windows x64, and Linux x64. This is enforced in CI on every push.
+
+(Intel macOS was dropped from v1.0 in early Phase 0; the determinism contract still spans two architectures — ARM64 on macOS and x86_64 on Windows + Linux — which is the test that matters for catching libm/SIMD drift.)
+
+See `sfs-spec/01_engine_architecture.md` §9 and `sfs-spec/06_rng_presets.md` §1 for the contract; see `tools/check_determinism.sh` for the static enforcement mechanism.
 
 ## Licensing
 

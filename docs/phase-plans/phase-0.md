@@ -65,10 +65,10 @@ A *toolchain* sanity check at end of Phase 0:
 
 From `sfs-spec/08_implementation_roadmap.md` §1, Phase 0 gate (extended to four platforms per the locked strategic choice). Status as of the latest commit:
 
-- [ ] CI green on `macos-13`, `macos-14`, `windows-2022`, `ubuntu-22.04`. *(pending — first full matrix run after `tests/` and `tools/check_determinism.sh` landed)*
-- [ ] Skeleton VST3 loads in REAPER on each platform and plays a polynomial 440 Hz sine. *(verified macOS arm64 locally; Win/Linux/macOS-x64 manual checks pending)*
-- [ ] `tests/refs/sine_skeleton_48k_256.sha256` hash-matches across all 4 platforms (artifacts uploaded; `determinism-compare` job green). *(pending; first cross-platform consensus hash gets locked in once `determinism.yml` is green)*
-- [ ] pluginval Level 1 clean on all 4 platforms. *(pending — `pluginval.yml` v1.0.4)*
+- [ ] CI green on `macos-14`, `windows-2022`, `ubuntu-22.04`. (`macos-13` Intel runner dropped from v1.0 — runner pool was perma-starved and Apple Silicon is the platform the spec author plans to ship from anyway. Cross-architecture verification still spans ARM64 (macOS) + x86_64 (Win/Linux), which is the meaningful test.) *(pending — first full matrix run after macos-13 removal)*
+- [ ] Skeleton VST3 loads in REAPER on each platform and plays a polynomial 440 Hz sine. *(verified macOS arm64 locally; Win/Linux manual checks pending)*
+- [ ] `tests/refs/sine_skeleton_48k_256.sha256` hash-matches across all 3 platforms (artifacts uploaded; `determinism-compare` job green). *(pending; first cross-platform consensus hash gets locked in once `determinism.yml` is green)*
+- [ ] pluginval Level 1 clean on all 3 platforms. *(pending — `pluginval.yml` v1.0.4)*
 - [x] `clang-format --dry-run --Werror` job in `ci.yml` (Linux) — clean on landed files; pending the actual matrix run.
 - [x] All 5 submodules pinned to tagged releases; `tools/check_submodule_pins.sh` green locally and wired into CI.
 - [x] No use of `std::sin`/`std::cos`/`std::exp`/`std::log`/`std::mt19937`/`std::default_random_engine`/`rand()`/`random()`/`AudioProcessorValueTreeState` in `src/` — `tools/check_determinism.sh` green locally and wired into CI.

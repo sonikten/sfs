@@ -25,8 +25,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-13       # Intel — track GitHub Actions deprecation; see phase-0.md §5
-            arch: x86_64
+          # Intel macOS (macos-13) was dropped from v1.0 — Apple Silicon only on
+          # macOS. Cross-architecture bit-exact reproducibility is still verified
+          # via Linux + Windows (x86_64) vs. macOS (arm64).
           - os: macos-14       # Apple Silicon
             arch: arm64
           - os: windows-2022
