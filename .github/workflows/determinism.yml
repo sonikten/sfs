@@ -39,7 +39,7 @@ jobs:
             slug: linux-x86_64
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -69,7 +69,7 @@ jobs:
         run: tools/hash_wav.sh build/ref_renders/*.wav | tee build/ref_renders/hashes.txt
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: render-${{ matrix.slug }}
           path: |
@@ -83,10 +83,10 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
