@@ -1,0 +1,101 @@
+# macOS
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+
+# Editors / IDEs
+.vscode/
+.idea/
+.vs/
+*.swp
+*.swo
+*~
+*.user
+.cache/
+compile_commands.json
+
+# Xcode
+*.xcworkspace/
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+
+# Visual Studio
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+
+# CMake
+build/
+build-*/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+Testing/
+Makefile
+*.cmake
+!cmake/*.cmake
+
+# Compiled objects / artifacts
+*.o
+*.obj
+*.lo
+*.la
+*.slo
+*.ko
+*.so
+*.so.*
+*.dylib
+*.dll
+*.a
+*.lib
+*.exe
+*.out
+*.app
+*.dSYM/
+*.pdb
+*.ilk
+*.exp
+
+# JUCE-generated
+JuceLibraryCode/
+Builds/
+juce_build/
+
+# VST / plugin artifacts
+*.vst3
+!presets/**/*.vst3preset
+
+# Logs / coverage
+*.log
+*.gcno
+*.gcda
+*.gcov
+coverage/
+*.profraw
+*.profdata
+
+# Test transient output (reference WAVs in tests/refs/ are tracked)
+tests/output/
+tests/tmp/
+*.wav
+!tests/refs/**/*.wav
+!presets/**/*.wav
+
+# Python (tooling, contract analysis scripts)
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Local environment
+.env
+.env.local
+local.config

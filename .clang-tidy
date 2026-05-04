@@ -1,0 +1,92 @@
+# clang-tidy configuration for SFS.
+#
+# Baseline general-quality checks. The custom determinism enforcement matchers
+# (forbid std::sin/cos/exp/log/sinf/cosf in src/engine/, forbid std::mt19937 /
+# std::default_random_engine / rand() / random() anywhere in src/, forbid
+# AudioProcessorValueTreeState anywhere in src/) are wired up in
+# cmake/DeterminismChecks.cmake as CI grep jobs — see plan §4. Custom
+# clang-tidy matchers may be added later if the grep approach proves too coarse.
+
+Checks: >
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  cppcoreguidelines-*,
+  hicpp-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -cert-dcl21-cpp,
+  -cert-err58-cpp,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-union-access,
+  -hicpp-avoid-c-arrays,
+  -hicpp-no-array-decay,
+  -hicpp-signed-bitwise,
+  -hicpp-uppercase-literal-suffix,
+  -modernize-avoid-c-arrays,
+  -modernize-use-trailing-return-type,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-math-missing-parentheses,
+  -readability-uppercase-literal-suffix,
+
+WarningsAsErrors: >
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  performance-*,
+  portability-*
+
+HeaderFilterRegex: '^(src|tests)/.*\.(h|hpp)$'
+
+CheckOptions:
+  - key:   readability-identifier-naming.NamespaceCase
+    value: lower_case
+  - key:   readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key:   readability-identifier-naming.StructCase
+    value: CamelCase
+  - key:   readability-identifier-naming.EnumCase
+    value: CamelCase
+  # Functions: camelBack is the project default, but the spec mandates a
+  # snake_case `dm_*` prefix for the deterministic-math primitives (dm_sin,
+  # dm_cos, dm_tanh, dm_exp, dm_log, dm_sqrt, dm_pow, dm_floor, dm_fract).
+  # `aNy_CasE` accepts both. Reviewers enforce the convention manually.
+  - key:   readability-identifier-naming.FunctionCase
+    value: aNy_CasE
+  - key:   readability-identifier-naming.MethodCase
+    value: camelBack
+  - key:   readability-identifier-naming.VariableCase
+    value: camelBack
+  - key:   readability-identifier-naming.ParameterCase
+    value: camelBack
+  - key:   readability-identifier-naming.MemberCase
+    value: camelBack
+  - key:   readability-identifier-naming.PrivateMemberSuffix
+    value: ''
+  - key:   readability-identifier-naming.ConstexprVariableCase
+    value: CamelCase
+  - key:   readability-identifier-naming.ConstexprVariablePrefix
+    value: 'k'
+  - key:   readability-identifier-naming.GlobalConstantCase
+    value: CamelCase
+  - key:   readability-identifier-naming.GlobalConstantPrefix
+    value: 'k'
+  - key:   readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+  - key:   modernize-use-default-member-init.UseAssignment
+    value: '1'
+  - key:   performance-move-const-arg.CheckTriviallyCopyableMove
+    value: '0'

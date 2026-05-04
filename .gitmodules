@@ -1,0 +1,15 @@
+[submodule "third_party/nlohmann_json"]
+	path = third_party/nlohmann_json
+	url = https://github.com/nlohmann/json.git
+[submodule "third_party/Random123"]
+	path = third_party/Random123
+	url = https://github.com/DEShawResearch/random123.git
+[submodule "third_party/SIMDe"]
+	path = third_party/SIMDe
+	url = https://github.com/simd-everywhere/simde.git
+[submodule "third_party/JUCE"]
+	path = third_party/JUCE
+	url = https://github.com/JUCE-Framework/JUCE.git
+[submodule "third_party/Catch2"]
+	path = third_party/Catch2
+	url = https://github.com/catchorg/Catch2.git
