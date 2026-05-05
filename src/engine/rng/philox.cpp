@@ -7,6 +7,10 @@
 
 #include "philox.h"
 
+#include "dsp/dm_cos.h"
+#include "dsp/dm_log.h"
+#include "dsp/dm_sqrt.h"
+
 // Random123's Philox header uses old-style C casts internally (uint64_t /
 // __uint128_t multiplications) that trip our `-Wold-style-cast -Werror`.
 // The macros are correct; we just locally suspend the strict diagnostics
@@ -123,6 +127,32 @@ float Philox4x32Stream::nextFloat01() noexcept
 {
     // Drop the low 8 bits — keep the 24 bits that fit in a float mantissa.
     return static_cast<float>(next32() >> 8) * kInvTwoPow24;
+}
+
+float nextGaussian(Philox4x32Stream& stream) noexcept
+{
+    // Box-Muller without cache. Two uniform draws → one Gaussian.
+    // sfs-spec/06 §1.4 prefers "one Philox call per Gaussian, discard 2 of
+    // 4 words" so order-independence under interleaved consumption is
+    // automatic; Phase 2's single-voice migration has only one caller, so
+    // two consecutive next32() suffice. The order-independence variant is
+    // a Phase 2 follow-up if multi-voice migration shows draw races.
+    const std::uint32_t u1Bits = stream.next32();
+    const std::uint32_t u2Bits = stream.next32();
+
+    constexpr float kInvTwoPow24Local = 1.0f / 16777216.0f;
+    float u1 = static_cast<float>(u1Bits >> 8) * kInvTwoPow24Local;
+    const float u2 = static_cast<float>(u2Bits >> 8) * kInvTwoPow24Local;
+
+    // Clamp u1 away from 0 so log(u1) doesn't blow up (sfs-spec/06 §1.4).
+    if (u1 < 1.0e-7f)
+    {
+        u1 = 1.0e-7f;
+    }
+
+    constexpr float kTwoPi = 6.28318530717958647692f;
+    const float r = sfs::dsp::dm_sqrt(-2.0f * sfs::dsp::dm_log(u1));
+    return r * sfs::dsp::dm_cos(kTwoPi * u2);
 }
 
 } // namespace sfs::engine::rng

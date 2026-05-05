@@ -81,4 +81,18 @@ private:
 // `out[0..3]` receives 128 bits of output. `key` is two words; `ctr` is four.
 void philox4x32_10(std::uint32_t out[4], const std::uint32_t ctr[4], const std::uint32_t key[2]) noexcept;
 
+// Box-Muller Gaussian draw with no second-value cache. One Philox call →
+// two of its four output words consumed → one Gaussian. The other two
+// words are discarded so draws don't depend on previous call ordering
+// (sfs-spec/06 §1.4: "the cache makes draw order matter for determinism
+// under interleaved consumption").
+//
+// Result is approximately N(0, 1) — mean 0, stddev 1. Bounded in
+// practice to roughly [-6, 6] (the `u1` clamp prevents the log going to
+// -infinity).
+//
+// Uses dm_sqrt + dm_log + dm_cos under the hood — all deterministic per
+// sfs-spec/06 §1.6.
+[[nodiscard]] float nextGaussian(Philox4x32Stream& stream) noexcept;
+
 } // namespace sfs::engine::rng

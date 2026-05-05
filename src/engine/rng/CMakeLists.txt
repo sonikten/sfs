@@ -18,6 +18,7 @@ target_include_directories (sfs_engine_rng
 
 target_link_libraries (sfs_engine_rng
     PUBLIC
+        SFS::Dsp                  # dm_log + dm_cos + dm_sqrt for nextGaussian
         SFS::DeterminismFlags
     PRIVATE
         SFS::StrictWarnings

@@ -154,3 +154,57 @@ TEST_CASE("Different stream IDs produce independent draws on the same (preset, v
     }
     REQUIRE(collisions < 4);
 }
+
+TEST_CASE("nextGaussian produces approximately N(0, 1) over many draws", "[rng][philox][gaussian]")
+{
+    Philox4x32Stream s;
+    s.seed(0xBEEF, 0, 0, StreamId::AgentMigrationNoise);
+
+    constexpr int kN = 10000;
+    double sum = 0.0;
+    double sumSq = 0.0;
+    float maxAbs = 0.0f;
+    int bigCount = 0; // > 4σ
+    for (int i = 0; i < kN; ++i)
+    {
+        s.setSampleIndex(static_cast<std::uint64_t>(i));
+        const float g = sfs::engine::rng::nextGaussian(s);
+        REQUIRE(std::isfinite(g));
+        sum += static_cast<double>(g);
+        sumSq += static_cast<double>(g) * static_cast<double>(g);
+        if (std::fabs(g) > maxAbs)
+        {
+            maxAbs = std::fabs(g);
+        }
+        if (std::fabs(g) > 4.0f)
+        {
+            ++bigCount;
+        }
+    }
+    const double mean = sum / kN;
+    const double stddev = std::sqrt(sumSq / kN - mean * mean);
+
+    CAPTURE(mean, stddev, maxAbs, bigCount);
+    // Mean should be ~0; with N=10k, expected stderr ~0.01.
+    REQUIRE(std::fabs(mean) < 0.05);
+    // Stddev should be ~1; with N=10k, expected stderr ~0.007.
+    REQUIRE(std::fabs(stddev - 1.0) < 0.05);
+    // Bounded: u1 clamp at 1e-7 caps r at sqrt(-2·log(1e-7)) ≈ 5.7.
+    REQUIRE(maxAbs < 6.0f);
+    // Tail count: P(|Z| > 4) ≈ 6.3e-5; for N=10k, expect ~0-1 hits.
+    REQUIRE(bigCount < 5);
+}
+
+TEST_CASE("nextGaussian is deterministic across re-seeds", "[rng][philox][gaussian]")
+{
+    Philox4x32Stream a, b;
+    a.seed(0xC0DECAFE, 0, 5, StreamId::AgentMigrationNoise);
+    b.seed(0xC0DECAFE, 0, 5, StreamId::AgentMigrationNoise);
+
+    for (int i = 0; i < 100; ++i)
+    {
+        a.setSampleIndex(static_cast<std::uint64_t>(i));
+        b.setSampleIndex(static_cast<std::uint64_t>(i));
+        REQUIRE(sfs::engine::rng::nextGaussian(a) == sfs::engine::rng::nextGaussian(b));
+    }
+}
