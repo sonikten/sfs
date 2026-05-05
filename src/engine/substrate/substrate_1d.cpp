@@ -34,7 +34,8 @@ Substrate1D::Substrate1D(int cellCount, float sampleRate)
       sampleRate_(sampleRate),
       u_(static_cast<std::size_t>(cellCount), 0.0f),
       v_(static_cast<std::size_t>(cellCount), 0.0f),
-      uInject_(static_cast<std::size_t>(cellCount), 0.0f)
+      uInject_(static_cast<std::size_t>(cellCount), 0.0f),
+      vNewBuf_(static_cast<std::size_t>(cellCount), 0.0f)
 {
     assert(isPowerOfTwo(cellCount) && cellCount >= kMinCells && cellCount <= kMaxCells);
     assert(sampleRate > 0.0f);
@@ -106,12 +107,11 @@ void Substrate1D::step() noexcept
     auto* const u = u_.data();
     auto* const v = v_.data();
     auto* const uInject = uInject_.data();
+    auto* const vNew = vNewBuf_.data();
 
     // Two-pass to keep the v Laplacian reading the OLD v values, not the
-    // newly-updated ones. Phase 1 uses a temporary array; Phase 2's SIMD
-    // pass can avoid it via offset-pair iteration.
-    std::vector<float> vNewBuf(static_cast<std::size_t>(N), 0.0f);
-    auto* const vNew = vNewBuf.data();
+    // newly-updated ones. The vNew buffer is a Substrate1D member to keep
+    // step() allocation-free (audio-thread invariant; sfs-spec/01 §4).
 
     // Phase A: compute new v from current u and v Laplacians + injection.
     for (int x = 0; x < N; ++x)

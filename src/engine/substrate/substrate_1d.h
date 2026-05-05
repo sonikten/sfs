@@ -102,6 +102,8 @@ private:
     std::vector<float> u_;       // displacement
     std::vector<float> v_;       // velocity
     std::vector<float> uInject_; // per-sample deposit accumulator
+    std::vector<float> vNewBuf_; // scratch buffer for the leapfrog v update
+                                 // (member, not local, so step() doesn't allocate)
 };
 
 } // namespace sfs::engine::substrate
