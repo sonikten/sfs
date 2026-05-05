@@ -68,6 +68,8 @@ public:
     [[nodiscard]] const sfs::engine::macros::MacroValues& macros() const noexcept { return macros_; }
 
 private:
+    void applyMacroFanOut(const sfs::engine::macros::InternalFields& fields) noexcept;
+
     substrate::Substrate1D substrate_;
     agents::AgentPool agents_;
     float sampleRate_;

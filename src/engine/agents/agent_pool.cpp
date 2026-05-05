@@ -1,7 +1,6 @@
 // src/engine/agents/agent_pool.cpp
 //
-// Per-voice agent pool — Phase 1 reference. Sine waveforms only; no migration.
-// See agent_pool.h for the contract.
+// Per-voice agent pool. See agent_pool.h for the contract.
 
 #include "agent_pool.h"
 
@@ -65,30 +64,30 @@ void AgentPool::noteOn(int midiNote, float velocity)
     // Spec default deposit weight (sfs-spec/09 §3.3): 0.05 / sqrt(activeCount).
     const float defaultDepositWeight = 0.05f / std::sqrt(static_cast<float>(std::max(1, activeCount_)));
 
-    // Phase 2 migration per sfs-spec/03 §5:
-    //   r_i ∼ MIGRATION · uniform(-1, 1) · 0.001 · N      (drawn at noteOn)
-    //   ε_i ~ MIGRATION · 0.0005 · N · gaussian()         (per sample)
+    // Per sfs-spec/03 §5 + sfs-spec/05 §3.4:
+    //   r_i  ∼ MIGRATION · uniform(-1, 1) · 0.001 · N     (drawn at noteOn)
+    //   ε_i  ~ MIGRATION · 0.0005 · N · gaussian()        (per sample)
+    // Per sfs-spec/05 §3.5 (COHERENCE):
+    //   detune_i ∝ (1 - COHERENCE)² · uniform(-50, 50) cents
     //
-    // Phase 2 simplification: no MIGRATION macro yet (lands in macros step),
-    // so we apply a "MIGRATION ≈ 0.1" overall scale here — gentle enough not
-    // to pump the substrate, audibly more interesting than Phase 1's static
-    // alternating pattern.
-    constexpr float kPhase2MigrationScale = 0.1f;
-    constexpr float kSubstrateCellsRef = 1024.0f; // r_i scale uses N
-    constexpr float kRDriftScale = kPhase2MigrationScale * 0.001f * kSubstrateCellsRef;
-    constexpr float kEpsNoiseScale = kPhase2MigrationScale * 0.0005f * kSubstrateCellsRef;
-    // Phase 2 hard-coded preset seed (preset format with `seed` field lands
-    // in P4 — until then every render uses the same seed).
+    // The MIGRATION/COHERENCE macros aren't read here — they're applied
+    // each block by Voice from the macro fan-out. This routine just draws
+    // the per-agent direction/cents shape; magnitudes scale at block rate.
+    constexpr float kRDirectionUnit = 0.001f * 1024.0f; // r_i unit
+    constexpr float kEpsNoiseUnit = 0.0005f * 1024.0f;  // ε_i unit
+    constexpr float kMaxDetuneCents = 50.0f;
     constexpr std::uint64_t kPhase2PresetSeed = 0x5F5'5F5'5F5'5F5ull;
-    constexpr std::uint16_t kPhase2VoiceIndex = 0; // single voice in P1/P2
+    constexpr std::uint16_t kPhase2VoiceIndex = 0;
 
     for (int i = 0; i < activeCount_; ++i)
     {
         auto& a = agents_[static_cast<std::size_t>(i)];
         a.frequency = baseHz;
+        a.baseFrequency = baseHz;
         a.phase = 0.0f;
         a.amplitude = scaledAmp;
         a.envelope = 1.0f;
+        a.baseDepositWeight = defaultDepositWeight;
         a.depositWeight = defaultDepositWeight;
 
         // Per-agent migration noise stream: AgentMigrationNoise (sample-indexed).
@@ -97,19 +96,31 @@ void AgentPool::noteOn(int midiNote, float velocity)
                            static_cast<std::uint16_t>(i),
                            sfs::engine::rng::StreamId::AgentMigrationNoise);
 
-        // r_i: per-agent constant drift, drawn at noteOn from a separate
-        // init stream (AgentPositionInit, sample_index = 0). Uniform(-1, 1)
-        // scaled by kRDriftScale.
+        // Direction draw for r_i (AgentPositionInit, sample_index = 0).
         sfs::engine::rng::Philox4x32Stream initStream;
         initStream.seed(kPhase2PresetSeed,
                         kPhase2VoiceIndex,
                         static_cast<std::uint16_t>(i),
                         sfs::engine::rng::StreamId::AgentPositionInit);
-        const float u01 = initStream.nextFloat01();
-        const float uSym = u01 * 2.0f - 1.0f; // [-1, 1)
-        a.migrationRate = uSym * kRDriftScale;
-        a.migrationNoiseScale = kEpsNoiseScale;
+        const float migU01 = initStream.nextFloat01();
+        a.migrationDirection = migU01 * 2.0f - 1.0f;              // [-1, 1)
+        a.migrationRate = a.migrationDirection * kRDirectionUnit; // default macro=1
+        a.migrationNoiseScale = kEpsNoiseUnit;
+
+        // Per-agent detune cents (AgentHarmonicSelect, sample_index = 0).
+        sfs::engine::rng::Philox4x32Stream detuneStream;
+        detuneStream.seed(kPhase2PresetSeed,
+                          kPhase2VoiceIndex,
+                          static_cast<std::uint16_t>(i),
+                          sfs::engine::rng::StreamId::AgentHarmonicSelect);
+        const float detU01 = detuneStream.nextFloat01();
+        a.detuneCents = (detU01 * 2.0f - 1.0f) * kMaxDetuneCents; // [-50, 50)
     }
+}
+
+void AgentPool::setActiveCount(int n) noexcept
+{
+    activeCount_ = std::clamp(n, 0, static_cast<int>(agents_.size()));
 }
 
 void AgentPool::noteOff()

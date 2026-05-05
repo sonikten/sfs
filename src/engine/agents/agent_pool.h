@@ -5,16 +5,18 @@
 // and deposits a scaled contribution back into the substrate. Stigmergy in
 // action — agents only see each other through the substrate. (sfs-spec/03.)
 //
-// Phase 1 scope:
-//   - Sine waveform only via sfs::dsp::dm_sin (other 4 waveforms in P2).
-//   - Fixed agent positions; migration noise (Gaussian) is deferred until
-//     dm_log / dm_cos / dm_sqrt land alongside the agent migration commit.
+// Phase 2 scope:
+//   - 5 waveforms (Sine, Saw/PolyBLEP, Square/PolyBLEP, FmPair, Noise/S&H).
+//   - Per-agent migration: constant drift r_i + Gaussian ε_i (sample-indexed
+//     Philox). Magnitudes scale block-rate from MIGRATION macro fan-out.
+//   - Per-agent detune from baseFrequency × (1-COHERENCE)² fan-out.
 //   - Simple gate envelope (on/off, no ADSR shaping yet).
 //   - Multiplicative bend per sfs-spec/03 §2: f_inst = f_i · (1 + m_i · u_at)
 //
 // The pool owns the Agent state, but the per-sample compute lives in
 // processOneSample(Substrate1D&) which interleaves agent reads, deposits,
 // and phase advances inside the canonical engine step (sfs-spec/01 §5.4).
+// Block-rate macro→agent rewriting lives in Voice::applyMacroFanOut.
 
 #pragma once
 
@@ -51,11 +53,23 @@ struct Agent
     float envelope = 0.0f;            // gate envelope, [0, 1]; binary on/off in Phase 1
     float depositWeight = 0.05f;      // w_i — sfs-spec/09 default 0.05/sqrt(activeCount)
     float modSensitivity = 0.2f;      // m_i — substrate→frequency coupling, [0, 1]
-    float migrationRate = 0.0f;       // r_i — constant cells/sample drift (drawn at
-                                      // noteOn from uniform(-1, 1) · MIGRATION ·
-                                      // 0.001 · N per spec §5)
-    float migrationNoiseScale = 0.0f; // sigma for ε_i per sample (MIGRATION ·
-                                      // 0.0005 · N per spec §5)
+    float migrationRate = 0.0f;       // r_i — effective cells/sample drift; scaled
+                                      // each block from migrationDirection ×
+                                      // MIGRATION fan-out (sfs-spec/05 §3.4).
+    float migrationNoiseScale = 0.0f; // sigma for ε_i per sample, scaled each
+                                      // block from MIGRATION fan-out.
+
+    // Block-rate macro inputs. The Voice rewrites the *_eff fields above
+    // each block from the macro fan-out × these per-agent draws (which
+    // are drawn once at noteOn from per-agent Philox streams).
+    float migrationDirection = 0.0f; // uniform(-1, 1) at noteOn — sign+magnitude
+                                     // shaper for migrationRate.
+    float baseDepositWeight = 0.05f; // 0.05 / sqrt(maxActiveCount) at noteOn;
+                                     // scaled by DENSITY fan-out per block.
+    float baseFrequency = 440.0f;    // f0 at noteOn; live frequency derived
+                                     // from this × COHERENCE detune.
+    float detuneCents = 0.0f;        // uniform(-50, 50) at noteOn; scaled by
+                                     // (1 - COHERENCE)² each block.
 
     // Phase 2: agent waveform shape + shape-specific parameters.
     AgentShape shape = AgentShape::Sine;
@@ -93,11 +107,19 @@ public:
     //   4. Deposit (w_i · a_i · e_i · y_i) into the substrate at p_i.
     //   5. Advance phase using the bent frequency.
     //
-    // Migration is intentionally absent; Phase 1's static positions still
-    // exercise the read-bend-deposit substrate coupling.
+    // Per-sample migration update: position += r_i + ε_i · noiseScale, where
+    // r_i and noiseScale are scaled at block boundaries by Voice from the
+    // MIGRATION fan-out (sfs-spec/03 §5).
     void processOneSample(sfs::engine::substrate::Substrate1D& substrate, float sampleRate) noexcept;
 
     [[nodiscard]] int activeCount() const noexcept { return activeCount_; }
+
+    // Phase 2 DENSITY wiring: live-resize the active subset of agents.
+    // Clamps to [0, agents_.size()]. Newly activated agents inherit the
+    // state populated at noteOn (frequency, phase, envelope) — the pool
+    // pre-fills all slots, activeCount_ just controls how many are
+    // processed each sample.
+    void setActiveCount(int n) noexcept;
     [[nodiscard]] const Agent& agent(int i) const noexcept { return agents_[static_cast<std::size_t>(i)]; }
     [[nodiscard]] Agent& mutableAgent(int i) noexcept { return agents_[static_cast<std::size_t>(i)]; }
 

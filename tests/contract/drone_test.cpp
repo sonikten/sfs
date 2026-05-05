@@ -121,23 +121,22 @@ TEST_CASE("Drone contract (degraded Phase 1 form): spectral centroid is stable",
 
     Voice voice(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
 
-    // Phase 2 drone-degraded preset via macros + per-agent overrides:
-    //   * EXCITATION = 0 → agentModSensitivityScale = 0 (no substrate-bend
-    //     reset on every block by the fan-out)
-    //   * MIGRATION  = 0 → spec curves give 0 noise scale, but the macro
-    //     isn't yet applied to live state, so we also zero
-    //     migrationRate + migrationNoiseScale per agent after noteOn.
+    // Phase 2 drone-pure preset via macros:
+    //   * EXCITATION = 0 → agentModSensitivityScale = 0 (no substrate bend)
+    //   * MIGRATION  = 0 → no drift, no Gaussian wandering
+    //   * COHERENCE  = 1 → agentDetuneScale = 0, all agents locked to f0
+    // The macro fan-out at each block boundary now writes these to
+    // per-agent state, so no manual per-agent zeroing is needed.
     voice.macros().excitation = 0.0f;
     voice.macros().migration = 0.0f;
+    voice.macros().coherence = 1.0f;
     voice.noteOn(60, 1.0f); // C4
     auto& agents = voice.agents();
+    // Cover the first sample before the first block's fan-out runs.
     for (int i = 0; i < agents.activeCount(); ++i)
     {
         agents.mutableAgent(i).migrationRate = 0.0f;
         agents.mutableAgent(i).migrationNoiseScale = 0.0f;
-        // modSensitivity is set to 0 by the EXCITATION-driven fan-out at
-        // each block boundary; explicit zero here covers the first sample
-        // before the first block's fan-out runs.
         agents.mutableAgent(i).modSensitivity = 0.0f;
     }
 

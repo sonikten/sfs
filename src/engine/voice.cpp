@@ -40,6 +40,41 @@ constexpr float kOutputPreGain = 0.5f;
 
 } // namespace
 
+// Apply the block-rate macro fan-out to substrate + every active agent.
+// Wires every InternalField that maps cleanly onto Phase 2 state:
+//   TENSION    → substrate c²
+//   DAMPING    → substrate γ
+//   DENSITY    → activeCount (live resize) + per-agent deposit weight
+//   MIGRATION  → per-agent r_i drift + ε_i noise scale
+//   COHERENCE  → per-agent detuned frequency from baseFrequency
+//   EXCITATION → per-agent modSensitivity
+// Plus the SHAPE selector (not a macro, but applied here for symmetry).
+void Voice::applyMacroFanOut(const sfs::engine::macros::InternalFields& fields) noexcept
+{
+    substrate_.setCoefficients(fields.substrateC2, substrateKappa_, fields.substrateGamma);
+
+    // DENSITY: live resize the active subset BEFORE we walk active agents.
+    agents_.setActiveCount(fields.agentActiveCount);
+
+    constexpr float kRDirectionUnit = 0.001f * 1024.0f;
+    constexpr float kEpsNoiseUnit = 0.0005f * 1024.0f;
+    constexpr float kCentsToRatio = 1.0f / 1200.0f;
+    const float driftScale = fields.agentDriftScale;
+    const float noiseScale = fields.agentMigrationNoiseScale;
+    const float detuneScale = fields.agentDetuneScale; // (1 - C)²
+    for (int i = 0; i < agents_.activeCount(); ++i)
+    {
+        auto& a = agents_.mutableAgent(i);
+        a.shape = uniformShape_;
+        a.modSensitivity = fields.agentModSensitivityScale;
+        a.depositWeight = a.baseDepositWeight * fields.agentDepositWeightScale;
+        a.migrationRate = a.migrationDirection * driftScale * kRDirectionUnit;
+        a.migrationNoiseScale = noiseScale * kEpsNoiseUnit;
+        const float cents = a.detuneCents * detuneScale;
+        a.frequency = a.baseFrequency * (1.0f + cents * kCentsToRatio);
+    }
+}
+
 Voice::Voice(int substrateCells, int agentCount, float sampleRate)
     : substrate_(substrateCells, sampleRate), agents_(agentCount), sampleRate_(sampleRate)
 {
@@ -101,13 +136,7 @@ void Voice::renderBlock(float* out, int numSamples) noexcept
     // harmonic_set logic (COHERENCE).
     macros_.clampInPlace();
     const sfs::engine::macros::InternalFields fields = sfs::engine::macros::fanOut(macros_);
-    substrate_.setCoefficients(fields.substrateC2, substrateKappa_, fields.substrateGamma);
-    for (int i = 0; i < agents_.activeCount(); ++i)
-    {
-        auto& a = agents_.mutableAgent(i);
-        a.modSensitivity = fields.agentModSensitivityScale;
-        a.shape = uniformShape_;
-    }
+    applyMacroFanOut(fields);
 
     const float pos = harvesterPosition_;
     const float a = dcBlockerAlpha_;
@@ -136,17 +165,9 @@ void Voice::renderBlockStereo(float* outL, float* outR, int numSamples) noexcept
 
     const sfs::dsp::ScopedFlushToZero scopedFtz;
 
-    // Same block-rate macro fan-out as the mono path. Could be hoisted
-    // into a private helper if the mono path stays around long-term.
     macros_.clampInPlace();
     const sfs::engine::macros::InternalFields fields = sfs::engine::macros::fanOut(macros_);
-    substrate_.setCoefficients(fields.substrateC2, substrateKappa_, fields.substrateGamma);
-    for (int i = 0; i < agents_.activeCount(); ++i)
-    {
-        auto& a = agents_.mutableAgent(i);
-        a.modSensitivity = fields.agentModSensitivityScale;
-        a.shape = uniformShape_;
-    }
+    applyMacroFanOut(fields);
 
     const float a = dcBlockerAlpha_;
     float prevInL = dcBlockerLastInputL_;
