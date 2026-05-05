@@ -145,8 +145,9 @@ void VoiceManager::renderBlockStereo(float* outL, float* outR, int numSamples) n
             continue;
         }
 
-        // Push the shared macros snapshot into this voice.
+        // Push the shared macros snapshot + shape selection into this voice.
         s.voice.macros() = macros_;
+        s.voice.setUniformShape(uniformShape_);
 
         s.voice.renderBlockStereo(bufL.data(), bufR.data(), numSamples);
         for (int i = 0; i < numSamples; ++i)

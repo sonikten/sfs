@@ -31,6 +31,17 @@ class Substrate1D;
 namespace sfs::engine::agents
 {
 
+// Agent waveform types (sfs-spec/03 §3). Phase 1 was Sine only; Phase 2
+// adds Saw, Square, FmPair, Noise.
+enum class AgentShape : std::uint8_t
+{
+    Sine = 0,
+    Saw = 1,
+    Square = 2,
+    FmPair = 3,
+    Noise = 4,
+};
+
 struct Agent
 {
     float position = 0.0f;            // substrate cell position [0, N), continuous
@@ -45,6 +56,13 @@ struct Agent
                                       // 0.001 · N per spec §5)
     float migrationNoiseScale = 0.0f; // sigma for ε_i per sample (MIGRATION ·
                                       // 0.0005 · N per spec §5)
+
+    // Phase 2: agent waveform shape + shape-specific parameters.
+    AgentShape shape = AgentShape::Sine;
+    float fmRatio = 1.0f;        // FmPair: modulator-to-carrier ratio
+    float fmIndex = 0.5f;        // FmPair: modulation depth
+    float noiseHoldValue = 0.0f; // Noise: current sample-and-hold value
+    float noiseLastPhase = 0.0f; // Noise: phase at last hold refresh
 
     // Per-agent Philox stream for sample-indexed migration noise (stream
     // ID AgentMigrationNoise, sample-indexed). Seeded at noteOn from

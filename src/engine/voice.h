@@ -54,6 +54,12 @@ public:
     void setHarvesterPosition(float position) noexcept { harvesterPosition_ = position; }
     [[nodiscard]] float harvesterPosition() const noexcept { return harvesterPosition_; }
 
+    // Phase 2 single-shape selection: every agent uses the same waveform.
+    // Phase 3 will replace with per-agent shape from agent.shape_distribution
+    // (sfs-spec/09 §3.3). Set by the plug-in shell from a host parameter.
+    void setUniformShape(sfs::engine::agents::AgentShape s) noexcept { uniformShape_ = s; }
+    [[nodiscard]] sfs::engine::agents::AgentShape uniformShape() const noexcept { return uniformShape_; }
+
     // Mutable access to the macro values. Plug-in shell writes the current
     // host-parameter values into this struct before each renderBlock call;
     // renderBlock applies the fan-out to substrate + agent fields at block
@@ -72,6 +78,11 @@ private:
     // into macros_ before renderBlock; renderBlock applies the fan-out at
     // block start to substrate + agent fields.
     sfs::engine::macros::MacroValues macros_{};
+
+    // Phase 2 uniform shape: every agent uses the same waveform. Set by
+    // the plug-in shell from a host AudioParameterChoice. P3 replaces
+    // with per-agent shape draws from the shape_distribution.
+    sfs::engine::agents::AgentShape uniformShape_ = sfs::engine::agents::AgentShape::Sine;
 
     // Substrate κ (velocity diffusion) is not macro-driven in Phase 2 (the
     // spec leaves it to indirect control via DAMPING + EXCITATION but that

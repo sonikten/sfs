@@ -80,6 +80,7 @@ private:
     juce::AudioParameterFloat* migrationParam_ = nullptr;
     juce::AudioParameterFloat* coherenceParam_ = nullptr;
     juce::AudioParameterFloat* excitationParam_ = nullptr;
+    juce::AudioParameterChoice* shapeParam_ = nullptr; // Phase 2 uniform agent shape
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SfsAudioProcessor)
 };

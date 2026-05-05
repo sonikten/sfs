@@ -46,6 +46,11 @@ public:
     [[nodiscard]] sfs::engine::macros::MacroValues& macros() noexcept { return macros_; }
     [[nodiscard]] const sfs::engine::macros::MacroValues& macros() const noexcept { return macros_; }
 
+    // Phase 2 uniform-shape selection: every voice's agents share the
+    // same waveform. Plug-in shell writes from a host parameter.
+    void setUniformShape(sfs::engine::agents::AgentShape s) noexcept { uniformShape_ = s; }
+    [[nodiscard]] sfs::engine::agents::AgentShape uniformShape() const noexcept { return uniformShape_; }
+
     // Inspection.
     [[nodiscard]] int activeVoiceCount() const noexcept;
 
@@ -67,6 +72,7 @@ private:
 
     std::array<VoiceSlot, kMaxVoices> slots_;
     sfs::engine::macros::MacroValues macros_{};
+    sfs::engine::agents::AgentShape uniformShape_ = sfs::engine::agents::AgentShape::Sine;
     std::uint64_t nextAge_ = 1; // monotonically increasing
 };
 

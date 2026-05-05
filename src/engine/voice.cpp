@@ -104,7 +104,9 @@ void Voice::renderBlock(float* out, int numSamples) noexcept
     substrate_.setCoefficients(fields.substrateC2, substrateKappa_, fields.substrateGamma);
     for (int i = 0; i < agents_.activeCount(); ++i)
     {
-        agents_.mutableAgent(i).modSensitivity = fields.agentModSensitivityScale;
+        auto& a = agents_.mutableAgent(i);
+        a.modSensitivity = fields.agentModSensitivityScale;
+        a.shape = uniformShape_;
     }
 
     const float pos = harvesterPosition_;
@@ -141,7 +143,9 @@ void Voice::renderBlockStereo(float* outL, float* outR, int numSamples) noexcept
     substrate_.setCoefficients(fields.substrateC2, substrateKappa_, fields.substrateGamma);
     for (int i = 0; i < agents_.activeCount(); ++i)
     {
-        agents_.mutableAgent(i).modSensitivity = fields.agentModSensitivityScale;
+        auto& a = agents_.mutableAgent(i);
+        a.modSensitivity = fields.agentModSensitivityScale;
+        a.shape = uniformShape_;
     }
 
     const float a = dcBlockerAlpha_;

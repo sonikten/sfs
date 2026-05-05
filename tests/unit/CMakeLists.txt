@@ -8,6 +8,7 @@ add_executable (sfs_unit_tests
     rng_philox_test.cpp
     substrate_1d_test.cpp
     agent_pool_test.cpp
+    agent_waveforms_test.cpp
     voice_test.cpp
     voice_manager_test.cpp
     no_alloc_test.cpp

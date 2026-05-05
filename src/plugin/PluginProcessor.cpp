@@ -28,6 +28,15 @@ SfsAudioProcessor::SfsAudioProcessor()
     migrationParam_ = add("migration", "MIGRATION", 0.2f);
     coherenceParam_ = add("coherence", "COHERENCE", 0.8f);
     excitationParam_ = add("excitation", "EXCITATION", 0.3f);
+
+    // Phase 2 uniform-shape selector: all agents in all voices use this
+    // waveform. Phase 3 replaces with per-agent shape draws from
+    // shape_distribution (sfs-spec/09 §3.3).
+    shapeParam_ = new juce::AudioParameterChoice(juce::ParameterID("shape", 1),
+                                                 "SHAPE",
+                                                 juce::StringArray{"Sine", "Saw", "Square", "FmPair", "Noise"},
+                                                 0); // default Sine
+    addParameter(shapeParam_);
 }
 
 void SfsAudioProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)

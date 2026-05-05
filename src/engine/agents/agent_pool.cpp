@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 
 namespace sfs::engine::agents
 {
@@ -25,6 +26,29 @@ constexpr float kTwoPi = 6.28318530717958647692f;
 {
     return 440.0f * std::exp2((static_cast<float>(midiNote) - 69.0f) / 12.0f);
 }
+
+// PolyBLEP residual at a given phase position. `t` is the fractional phase
+// distance from the discontinuity (within ±dt). dt is the per-sample phase
+// increment (frequency / sampleRate). Returns the smoothing correction.
+//
+// Source: well-known formulation from Välimäki & Huovilainen, "Antialiasing
+// oscillators in subtractive synthesis" (2007). Costs ~4 ops per call.
+[[nodiscard]] inline float polyBlep(float t, float dt) noexcept
+{
+    if (t < dt)
+    {
+        const float x = t / dt;
+        return x + x - x * x - 1.0f;
+    }
+    if (t > 1.0f - dt)
+    {
+        const float x = (t - 1.0f) / dt;
+        return x * x + x + x + 1.0f;
+    }
+    return 0.0f;
+}
+
+constexpr float kInvTwoPow24 = 1.0f / 16777216.0f;
 
 } // namespace
 
@@ -128,8 +152,66 @@ void AgentPool::processOneSample(sfs::engine::substrate::Substrate1D& substrate,
         //    Multiplicative form preserves harmonic relationships.
         const float fInst = a.frequency * (1.0f + a.modSensitivity * uAt);
 
-        // 3. Generate the waveform sample. dm_sin takes radians.
-        const float y = sfs::dsp::dm_sin(kTwoPi * a.phase);
+        // 3. Generate the waveform sample by shape. Phase is in [0, 1) cycles.
+        const float dt = std::fabs(fInst) * invSampleRate; // for PolyBLEP
+        float y = 0.0f;
+        switch (a.shape)
+        {
+        case AgentShape::Sine:
+        {
+            y = sfs::dsp::dm_sin(kTwoPi * a.phase);
+            break;
+        }
+        case AgentShape::Saw:
+        {
+            // Naive ramp 2·phase − 1 ∈ [−1, 1) plus PolyBLEP residual at the
+            // wrap discontinuity (sfs-spec/03 §3). ~10 ops total.
+            y = 2.0f * a.phase - 1.0f;
+            y -= polyBlep(a.phase, dt);
+            break;
+        }
+        case AgentShape::Square:
+        {
+            // ±1 with PolyBLEP residuals at phase 0 and phase 0.5
+            // (the two square-wave discontinuities per cycle).
+            y = (a.phase < 0.5f) ? 1.0f : -1.0f;
+            y += polyBlep(a.phase, dt);
+            const float halfShifted = a.phase + 0.5f;
+            const float halfWrapped = halfShifted - std::floor(halfShifted);
+            y -= polyBlep(halfWrapped, dt);
+            break;
+        }
+        case AgentShape::FmPair:
+        {
+            // Two-op FM: carrier sin(2π·phase + index·sin(2π·ratio·phase)).
+            // Phase 2 simple form; the spec's full DX-style ratio table
+            // arrives with the preset format in Phase 4.
+            const float modPhase = kTwoPi * a.fmRatio * a.phase;
+            const float modSig = sfs::dsp::dm_sin(modPhase);
+            y = sfs::dsp::dm_sin(kTwoPi * a.phase + a.fmIndex * modSig);
+            break;
+        }
+        case AgentShape::Noise:
+        {
+            // Sample-and-hold at agent frequency. The held value updates
+            // each time the phase wraps (one new sample per cycle ≈
+            // f_inst Hz refresh rate). Per spec stream ID 5
+            // (AgentSampleHoldNoise), sample-indexed via the same
+            // noiseStream we use for migration ε — Phase 2 simplification;
+            // a separate per-agent sample-and-hold stream is a follow-up
+            // when noise determinism races appear.
+            if (a.phase < a.noiseLastPhase)
+            {
+                // Phase wrapped — refresh the held value with a fresh draw.
+                const std::uint32_t bits = a.noiseStream.next32();
+                // Map 24-bit uniform to [-1, 1).
+                a.noiseHoldValue = static_cast<float>(bits >> 8) * kInvTwoPow24 * 2.0f - 1.0f;
+            }
+            a.noiseLastPhase = a.phase;
+            y = a.noiseHoldValue;
+            break;
+        }
+        }
 
         // 4. Deposit the scaled contribution back into the substrate.
         const float contribution = a.depositWeight * a.amplitude * a.envelope * y;
