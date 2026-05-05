@@ -13,6 +13,7 @@
 #pragma once
 
 #include "engine/agents/agent_pool.h"
+#include "engine/macros/macros.h"
 #include "engine/substrate/substrate_1d.h"
 
 namespace sfs::engine
@@ -46,12 +47,30 @@ public:
     void setHarvesterPosition(float position) noexcept { harvesterPosition_ = position; }
     [[nodiscard]] float harvesterPosition() const noexcept { return harvesterPosition_; }
 
+    // Mutable access to the macro values. Plug-in shell writes the current
+    // host-parameter values into this struct before each renderBlock call;
+    // renderBlock applies the fan-out to substrate + agent fields at block
+    // boundaries. Phase 2: block-rate apply, no smoothing yet.
+    [[nodiscard]] sfs::engine::macros::MacroValues& macros() noexcept { return macros_; }
+    [[nodiscard]] const sfs::engine::macros::MacroValues& macros() const noexcept { return macros_; }
+
 private:
     substrate::Substrate1D substrate_;
     agents::AgentPool agents_;
     float sampleRate_;
     float harvesterPosition_ = 0.0f;
     bool gated_ = false;
+
+    // Phase 2 macro layer. The plug-in shell writes host-parameter values
+    // into macros_ before renderBlock; renderBlock applies the fan-out at
+    // block start to substrate + agent fields.
+    sfs::engine::macros::MacroValues macros_{};
+
+    // Substrate κ (velocity diffusion) is not macro-driven in Phase 2 (the
+    // spec leaves it to indirect control via DAMPING + EXCITATION but that
+    // pathway isn't fully fleshed). Phase 2 keeps κ at the Phase 1 default
+    // and revisits when DAMPING's full fan-out lands.
+    float substrateKappa_ = 0.05f;
 
     // DC blocker state for the harvester read (sfs-spec/02 §6 — applied at
     // the output, not on the substrate state). First-order high-pass:

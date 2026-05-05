@@ -83,6 +83,24 @@ void Voice::renderBlock(float* out, int numSamples) noexcept
     // because both are RAII scopes that save/restore.
     const sfs::dsp::ScopedFlushToZero scopedFtz;
 
+    // Apply macro fan-out at block boundaries (sfs-spec/05 §4 — block-rate
+    // evaluation, sample-rate smoothing on the macro outputs is a Phase 2
+    // follow-up). Currently wired:
+    //   TENSION    → substrate.c2
+    //   DAMPING    → substrate.gamma
+    //   EXCITATION → agent.modSensitivity (per-agent)
+    // DENSITY / MIGRATION / COHERENCE outputs are computed but not yet
+    // applied to live state; they land alongside the agent re-allocator
+    // (DENSITY), live re-seed of migration noise scales (MIGRATION), and
+    // harmonic_set logic (COHERENCE).
+    macros_.clampInPlace();
+    const sfs::engine::macros::InternalFields fields = sfs::engine::macros::fanOut(macros_);
+    substrate_.setCoefficients(fields.substrateC2, substrateKappa_, fields.substrateGamma);
+    for (int i = 0; i < agents_.activeCount(); ++i)
+    {
+        agents_.mutableAgent(i).modSensitivity = fields.agentModSensitivityScale;
+    }
+
     const float pos = harvesterPosition_;
     const float a = dcBlockerAlpha_;
     float prevIn = dcBlockerLastInput_;

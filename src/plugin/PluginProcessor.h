@@ -69,6 +69,18 @@ private:
     // happen here (block-rate context), NOT inside processBlock.
     std::unique_ptr<sfs::engine::Voice> voice_;
 
+    // Six host-automatable macro parameters (sfs-spec/05 §2). JUCE owns
+    // them once addParameter() is called; we keep raw pointers for fast
+    // get() reads inside processBlock. Deliberately NOT using
+    // AudioProcessorValueTreeState (sfs-spec/08 §5: its locking model
+    // breaks the audio-thread determinism contract).
+    juce::AudioParameterFloat* tensionParam_ = nullptr;
+    juce::AudioParameterFloat* dampingParam_ = nullptr;
+    juce::AudioParameterFloat* densityParam_ = nullptr;
+    juce::AudioParameterFloat* migrationParam_ = nullptr;
+    juce::AudioParameterFloat* coherenceParam_ = nullptr;
+    juce::AudioParameterFloat* excitationParam_ = nullptr;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SfsAudioProcessor)
 };
 

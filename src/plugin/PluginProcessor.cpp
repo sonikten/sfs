@@ -11,6 +11,23 @@ namespace sfs::plugin
 SfsAudioProcessor::SfsAudioProcessor()
     : juce::AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
+    // Six host-automatable macros (sfs-spec/05 §2 + §3). Defaults match
+    // sfs-spec/09 §3.1.
+    auto add = [&](juce::String id, juce::String name, float defaultValue)
+    {
+        auto* p = new juce::AudioParameterFloat(juce::ParameterID(std::move(id), 1),
+                                                std::move(name),
+                                                juce::NormalisableRange<float>{0.0f, 1.0f, 0.0001f},
+                                                defaultValue);
+        addParameter(p);
+        return p;
+    };
+    tensionParam_ = add("tension", "TENSION", 0.5f);
+    dampingParam_ = add("damping", "DAMPING", 0.3f);
+    densityParam_ = add("density", "DENSITY", 0.6f);
+    migrationParam_ = add("migration", "MIGRATION", 0.2f);
+    coherenceParam_ = add("coherence", "COHERENCE", 0.8f);
+    excitationParam_ = add("excitation", "EXCITATION", 0.3f);
 }
 
 void SfsAudioProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
@@ -48,6 +65,20 @@ void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     {
         return;
     }
+
+    // Block-rate macro update: read host parameter snapshots into the
+    // Voice's MacroValues. Voice::renderBlock applies the fan-out at
+    // its block start. Spec §5.7 sample-accurate automation lands as a
+    // Phase 2 follow-up; for now host param changes mid-block are
+    // applied at the next block boundary (5 ms granularity at 256-sample
+    // blocks @ 48 kHz).
+    auto& macros = voice_->macros();
+    macros.tension = tensionParam_->get();
+    macros.damping = dampingParam_->get();
+    macros.density = densityParam_->get();
+    macros.migration = migrationParam_->get();
+    macros.coherence = coherenceParam_->get();
+    macros.excitation = excitationParam_->get();
 
     // Phase 1 MIDI: take the LAST note-on/off in the block as the active gate.
     // Sample-accurate MIDI dispatch lands in Phase 2 along with the macro
