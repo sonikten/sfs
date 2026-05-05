@@ -4,6 +4,7 @@
 
 add_executable (sfs_unit_tests
     dm_sin_test.cpp
+    dm_primitives_test.cpp
     rng_philox_test.cpp
     substrate_1d_test.cpp
     agent_pool_test.cpp
