@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include "engine/rng/philox.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -31,15 +33,24 @@ namespace sfs::engine::agents
 
 struct Agent
 {
-    float position = 0.0f;       // substrate cell position [0, N), continuous
-    float frequency = 440.0f;    // base frequency in Hz
-    float phase = 0.0f;          // current phase in [0, 1) cycles (NOT radians)
-    float amplitude = 1.0f;      // [0, 1]
-    float envelope = 0.0f;       // gate envelope, [0, 1]; binary on/off in Phase 1
-    float depositWeight = 0.05f; // w_i — sfs-spec/09 default 0.05/sqrt(activeCount)
-    float modSensitivity = 0.2f; // m_i — substrate→frequency coupling, [0, 1]
-    float migrationRate = 0.0f;  // r_i — cells/sample drift; Phase 1 deterministic,
-                                 // Phase 2 adds Gaussian ε_i per spec §5
+    float position = 0.0f;            // substrate cell position [0, N), continuous
+    float frequency = 440.0f;         // base frequency in Hz
+    float phase = 0.0f;               // current phase in [0, 1) cycles (NOT radians)
+    float amplitude = 1.0f;           // [0, 1]
+    float envelope = 0.0f;            // gate envelope, [0, 1]; binary on/off in Phase 1
+    float depositWeight = 0.05f;      // w_i — sfs-spec/09 default 0.05/sqrt(activeCount)
+    float modSensitivity = 0.2f;      // m_i — substrate→frequency coupling, [0, 1]
+    float migrationRate = 0.0f;       // r_i — constant cells/sample drift (drawn at
+                                      // noteOn from uniform(-1, 1) · MIGRATION ·
+                                      // 0.001 · N per spec §5)
+    float migrationNoiseScale = 0.0f; // sigma for ε_i per sample (MIGRATION ·
+                                      // 0.0005 · N per spec §5)
+
+    // Per-agent Philox stream for sample-indexed migration noise (stream
+    // ID AgentMigrationNoise, sample-indexed). Seeded at noteOn from
+    // (presetSeed, voiceIndex, agentIndex). Phase 2: P2 single voice +
+    // fixed presetSeed; preset format lands in P4.
+    sfs::engine::rng::Philox4x32Stream noiseStream{};
 };
 
 class AgentPool
@@ -78,6 +89,7 @@ public:
 
 private:
     int activeCount_ = 0;
+    std::uint64_t currentSampleIndex_ = 0; // sample counter since last noteOn
     std::vector<Agent> agents_;
 };
 

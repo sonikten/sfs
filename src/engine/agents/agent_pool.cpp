@@ -36,40 +36,55 @@ void AgentPool::noteOn(int midiNote, float velocity)
     const float scaledAmp = std::clamp(velocity, 0.0f, 1.0f);
 
     activeCount_ = static_cast<int>(agents_.size());
+    currentSampleIndex_ = 0;
 
     // Spec default deposit weight (sfs-spec/09 §3.3): 0.05 / sqrt(activeCount).
-    // Caps the substrate energy injection per sample so a many-agent voice
-    // doesn't accumulate faster than γ can bleed off.
     const float defaultDepositWeight = 0.05f / std::sqrt(static_cast<float>(std::max(1, activeCount_)));
 
-    // Phase 1 placeholder migration rates: each agent gets a unique small
-    // drift so positions spread/recombine across the ring over time —
-    // gives the audibly evolving timbre that the Phase 1 acceptance test
-    // calls for. Magnitudes well below sfs-spec/09's `[-0.001 N, +0.001 N]`
-    // bound. Phase 2 replaces with the spec's MIGRATION-macro-driven
-    // uniform draw (and adds Gaussian ε_i per sample per §5).
+    // Phase 2 migration per sfs-spec/03 §5:
+    //   r_i ∼ MIGRATION · uniform(-1, 1) · 0.001 · N      (drawn at noteOn)
+    //   ε_i ~ MIGRATION · 0.0005 · N · gaussian()         (per sample)
     //
-    // Pattern: alternating + and -, magnitudes spread linearly. Two agents
-    // with the same |rate| but opposite signs slowly counter-rotate.
+    // Phase 2 simplification: no MIGRATION macro yet (lands in macros step),
+    // so we apply a "MIGRATION ≈ 0.1" overall scale here — gentle enough not
+    // to pump the substrate, audibly more interesting than Phase 1's static
+    // alternating pattern.
+    constexpr float kPhase2MigrationScale = 0.1f;
+    constexpr float kSubstrateCellsRef = 1024.0f; // r_i scale uses N
+    constexpr float kRDriftScale = kPhase2MigrationScale * 0.001f * kSubstrateCellsRef;
+    constexpr float kEpsNoiseScale = kPhase2MigrationScale * 0.0005f * kSubstrateCellsRef;
+    // Phase 2 hard-coded preset seed (preset format with `seed` field lands
+    // in P4 — until then every render uses the same seed).
+    constexpr std::uint64_t kPhase2PresetSeed = 0x5F5'5F5'5F5'5F5ull;
+    constexpr std::uint16_t kPhase2VoiceIndex = 0; // single voice in P1/P2
+
     for (int i = 0; i < activeCount_; ++i)
     {
         auto& a = agents_[static_cast<std::size_t>(i)];
-        a.frequency = baseHz; // Phase 1: every agent on the fundamental.
-                              // Phase 2 scales by harmonic_set[i].
+        a.frequency = baseHz;
         a.phase = 0.0f;
         a.amplitude = scaledAmp;
-        a.envelope = 1.0f; // gate ON
+        a.envelope = 1.0f;
         a.depositWeight = defaultDepositWeight;
 
-        // i=0 → 0.0020 cells/sample (~96 cells/sec, ring wraps every ~10 s
-        // for the slowest agent at 48 kHz). 10× smaller than the first attempt:
-        // moving agents inject fresh energy into still-undamped substrate
-        // cells, so high migration rates push the system into a self-pumping
-        // regime that the static-position version never hit. Combined with
-        // the Voice output saturator, this keeps Phase 1 audible without
-        // needing aggressive output limiting.
-        const float magnitude = 0.0020f + 0.0004f * static_cast<float>(i);
-        a.migrationRate = (i % 2 == 0) ? magnitude : -magnitude;
+        // Per-agent migration noise stream: AgentMigrationNoise (sample-indexed).
+        a.noiseStream.seed(kPhase2PresetSeed,
+                           kPhase2VoiceIndex,
+                           static_cast<std::uint16_t>(i),
+                           sfs::engine::rng::StreamId::AgentMigrationNoise);
+
+        // r_i: per-agent constant drift, drawn at noteOn from a separate
+        // init stream (AgentPositionInit, sample_index = 0). Uniform(-1, 1)
+        // scaled by kRDriftScale.
+        sfs::engine::rng::Philox4x32Stream initStream;
+        initStream.seed(kPhase2PresetSeed,
+                        kPhase2VoiceIndex,
+                        static_cast<std::uint16_t>(i),
+                        sfs::engine::rng::StreamId::AgentPositionInit);
+        const float u01 = initStream.nextFloat01();
+        const float uSym = u01 * 2.0f - 1.0f; // [-1, 1)
+        a.migrationRate = uSym * kRDriftScale;
+        a.migrationNoiseScale = kEpsNoiseScale;
     }
 }
 
@@ -127,15 +142,16 @@ void AgentPool::processOneSample(sfs::engine::substrate::Substrate1D& substrate,
             a.phase -= std::floor(a.phase);
         }
 
-        // 6. Migrate. Phase 1 uses deterministic per-agent drift only;
-        // sfs-spec/03 §5's Gaussian ε_i lands when dm_log / dm_cos /
-        // dm_sqrt arrive (deferred from this commit).
-        a.position += a.migrationRate;
-        // Substrate1D::deposit and read both wrap internally, so positions
-        // outside [0, N) are still legal — we only normalise to keep the
-        // float magnitude bounded.
-        // (No-op for the small drift rates we use in Phase 1.)
+        // 6. Migrate. r_i is the per-agent constant drift drawn at noteOn;
+        // ε_i is the per-sample Gaussian noise per sfs-spec/03 §5. The
+        // Substrate's deposit/read both wrap modulo N, so positions
+        // outside [0, N) are legal — no explicit wrap needed.
+        a.noiseStream.setSampleIndex(currentSampleIndex_);
+        const float epsilon = sfs::engine::rng::nextGaussian(a.noiseStream);
+        a.position += a.migrationRate + epsilon * a.migrationNoiseScale;
     }
+
+    ++currentSampleIndex_;
 }
 
 } // namespace sfs::engine::agents

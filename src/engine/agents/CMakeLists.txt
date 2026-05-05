@@ -18,6 +18,7 @@ target_include_directories (sfs_engine_agents
 target_link_libraries (sfs_engine_agents
     PUBLIC
         SFS::Dsp
+        SFS::Engine::Rng              # Philox + nextGaussian for migration noise
         SFS::Engine::Substrate
         SFS::DeterminismFlags
     PRIVATE
