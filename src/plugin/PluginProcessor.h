@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include "engine/voice.h"
+#include "engine/voice_manager.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -67,7 +67,7 @@ private:
     // Owned by prepareToPlay so we can size to the host sample rate. Lives
     // for the duration of [setActive(true), setActive(false)]. Allocations
     // happen here (block-rate context), NOT inside processBlock.
-    std::unique_ptr<sfs::engine::Voice> voice_;
+    std::unique_ptr<sfs::engine::VoiceManager> voiceManager_;
 
     // Six host-automatable macro parameters (sfs-spec/05 §2). JUCE owns
     // them once addParameter() is called; we keep raw pointers for fast

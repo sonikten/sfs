@@ -32,12 +32,14 @@ SfsAudioProcessor::SfsAudioProcessor()
 
 void SfsAudioProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
 {
-    voice_ = std::make_unique<sfs::engine::Voice>(kSubstrateCells, kAgentCount, static_cast<float>(sampleRate));
+    voiceManager_ = std::make_unique<sfs::engine::VoiceManager>(kSubstrateCells,
+                                                                kAgentCount,
+                                                                static_cast<float>(sampleRate));
 }
 
 void SfsAudioProcessor::releaseResources()
 {
-    voice_.reset();
+    voiceManager_.reset();
 }
 
 bool SfsAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -61,18 +63,16 @@ void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
         buffer.clear(ch, 0, numSamples);
     }
 
-    if (voice_ == nullptr || numChannels == 0 || numSamples == 0)
+    if (voiceManager_ == nullptr || numChannels == 0 || numSamples == 0)
     {
         return;
     }
 
     // Block-rate macro update: read host parameter snapshots into the
-    // Voice's MacroValues. Voice::renderBlock applies the fan-out at
-    // its block start. Spec §5.7 sample-accurate automation lands as a
-    // Phase 2 follow-up; for now host param changes mid-block are
-    // applied at the next block boundary (5 ms granularity at 256-sample
-    // blocks @ 48 kHz).
-    auto& macros = voice_->macros();
+    // VoiceManager's MacroValues; per-voice copies happen inside
+    // VoiceManager::renderBlockStereo. Spec §5.7 sample-accurate
+    // automation lands as a Phase 2 follow-up.
+    auto& macros = voiceManager_->macros();
     macros.tension = tensionParam_->get();
     macros.damping = dampingParam_->get();
     macros.density = densityParam_->get();
@@ -80,36 +80,35 @@ void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     macros.coherence = coherenceParam_->get();
     macros.excitation = excitationParam_->get();
 
-    // Phase 1 MIDI: take the LAST note-on/off in the block as the active gate.
-    // Sample-accurate MIDI dispatch lands in Phase 2 along with the macro
-    // automation pipeline; for now, gate state changes happen at block
-    // boundaries which is audible only on extremely short blocks.
+    // MIDI dispatch — VoiceManager handles allocation + stealing.
+    // Phase 2 simplification: events apply at block boundaries (5 ms
+    // granularity at 256-sample blocks @ 48 kHz). Sample-accurate
+    // dispatch lands as part of step 12.
     for (const auto meta : midiMessages)
     {
         const auto& msg = meta.getMessage();
         if (msg.isNoteOn())
         {
-            voice_->noteOn(msg.getNoteNumber(), msg.getFloatVelocity());
+            voiceManager_->noteOn(msg.getNoteNumber(), msg.getFloatVelocity());
         }
         else if (msg.isNoteOff())
         {
-            voice_->noteOff();
+            voiceManager_->noteOff(msg.getNoteNumber());
         }
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
         {
-            voice_->noteOff();
+            voiceManager_->allNotesOff();
         }
     }
 
     // Stereo render: two harvesters at substrate positions 0 and N/2 give
     // inter-channel decorrelation from the substrate's wave propagation
-    // between them (sfs-spec/04 §3.2). Mono falls back to a duplicate.
+    // between them (sfs-spec/04 §3.2). Mono fallback duplicates L.
     if (numChannels >= 2)
     {
         auto* const outL = buffer.getWritePointer(0);
         auto* const outR = buffer.getWritePointer(1);
-        voice_->renderBlockStereo(outL, outR, numSamples);
-        // Higher channel counts (Phase 3+) duplicate L for now.
+        voiceManager_->renderBlockStereo(outL, outR, numSamples);
         for (int ch = 2; ch < numChannels; ++ch)
         {
             buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
@@ -117,8 +116,15 @@ void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     }
     else
     {
+        // No mono path on the manager (Phase 2 stereo-default); render
+        // stereo and downmix.
+        std::vector<float> tmpR(static_cast<std::size_t>(numSamples), 0.0f);
         auto* const left = buffer.getWritePointer(0);
-        voice_->renderBlock(left, numSamples);
+        voiceManager_->renderBlockStereo(left, tmpR.data(), numSamples);
+        for (int i = 0; i < numSamples; ++i)
+        {
+            left[i] = 0.5f * (left[i] + tmpR[static_cast<std::size_t>(i)]);
+        }
     }
 }
 

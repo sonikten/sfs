@@ -6,6 +6,7 @@
 
 add_library (sfs_engine STATIC
     voice.cpp
+    voice_manager.cpp
 )
 
 add_library (SFS::Engine ALIAS sfs_engine)

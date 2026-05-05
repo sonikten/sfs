@@ -9,6 +9,7 @@ add_executable (sfs_unit_tests
     substrate_1d_test.cpp
     agent_pool_test.cpp
     voice_test.cpp
+    voice_manager_test.cpp
     no_alloc_test.cpp
     denormal_flush_test.cpp
     macros_test.cpp
