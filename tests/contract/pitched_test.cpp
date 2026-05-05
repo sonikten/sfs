@@ -121,13 +121,18 @@ TEST_CASE("Pitched contract (Phase 1 form): chromatic notes match expected pitch
     {
         Voice voice(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
 
-        // Phase 1 pitched preset: same as drone — no migration, no bend so the
-        // agent fundamental is the dominant pitch the harvester reads.
+        // Phase 2 pitched preset (same as drone): EXCITATION = 0 to keep
+        // the agent fundamental clean; MIGRATION = 0 so the agents stay
+        // put. Per-agent scale zeroes also needed because MIGRATION's
+        // fan-out isn't yet applied to live state.
+        voice.macros().excitation = 0.0f;
+        voice.macros().migration = 0.0f;
         voice.noteOn(midi, 1.0f);
         auto& agents = voice.agents();
         for (int i = 0; i < agents.activeCount(); ++i)
         {
             agents.mutableAgent(i).migrationRate = 0.0f;
+            agents.mutableAgent(i).migrationNoiseScale = 0.0f;
             agents.mutableAgent(i).modSensitivity = 0.0f;
         }
 
