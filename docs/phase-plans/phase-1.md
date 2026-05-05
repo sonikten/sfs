@@ -122,21 +122,24 @@ Subjective failures are blockers; document them and triage before tagging.
 
 ## 7. Definition of done
 
-From `08 §1` Phase 1 gate, extended for the master plan's 4-platform / solo-dev posture:
+From `08 §1` Phase 1 gate, extended for the master plan's 3-platform / solo-dev posture (Intel macOS dropped). Status as of `1700afa`:
 
-- [ ] 30-second sustained note plays a recognisable evolving timbre (subjective; recorded in the macro-feel journal).
-- [ ] Substrate stability verified across the macro-corner grid + 8 random points (CFL clamp test).
-- [ ] Bit-exact reproducibility on all 4 platforms for the Phase 1 canonical render (extends the P0 determinism harness with `phase1_drone.wav` and `phase1_pitched.wav`).
-- [ ] Pitched contract test passes (YIN ±3% on chromatic C2–C7).
-- [ ] Drone-degraded contract test passes (`stddev(centroid)/mean(centroid) < 0.05`).
-- [ ] Organic and glitch contract tests SKIP cleanly (marker present, non-zero on absence).
-- [ ] All unit test vectors from `02 §11` and `03 §10` pass.
-- [ ] CPU profile recorded; meets `08 §2.5` Phase 2 gate threshold for `1D-32-agent` (early indicator; the actual P2 gate is the budget enforcer).
-- [ ] No allocations on the audio thread (Catch2 fixture override) — per the master-plan §4 invariant.
-- [ ] FTZ/DAZ verified at audio-thread entry (per-platform unit test).
-- [ ] Doc-09 diff non-empty (or "verified, no change") and propagated.
-- [ ] `docs/journals/phase-1-cpu-profile.md` and `docs/journals/phase-1-macro-feel.md` committed.
-- [ ] Annotated `git tag phase-1-gate` with gate-evidence summary.
+- [x] **30-second sustained note plays a recognisable evolving timbre** — user listened in Ableton Live: "the sound at this stage is now acceptable" (after fixes for clipping `adfc4b7`, no-decay `239198c`, and the regression test in `1700afa`).
+- [ ] Substrate stability verified across the macro-corner grid + 8 random points (CFL clamp test) — partial; CFL clamp test passes for representative coefficients in `substrate_1d_test.cpp`. Full grid sweep deferred until macros land in P2.
+- [x] Bit-exact reproducibility on all 3 platforms for the Phase 1 canonical render (`tests/refs/phase1_canonical_c4_48k_256.sha256` = `77c65767…5b`, locked in via the determinism CI compare).
+- [ ] Pitched contract test passes (YIN ±3% on chromatic C2–C7) — pending; needs YIN port or alternative pitch tracker.
+- [ ] Drone-degraded contract test passes (`stddev(centroid)/mean(centroid) < 0.05`) — pending; needs STFT centroid analyser.
+- [ ] Organic and glitch contract tests SKIP cleanly (marker present, non-zero on absence) — pending; lands with the contract harness.
+- [x] Substrate decay regression test (the test that would have caught the DC-blocker bug) — `1700afa`.
+- [ ] All unit test vectors from `02 §11` and `03 §10` pass — partial; Phase 1 vectors 1 & 2 (impulse propagation, damping comparison) green. Other vectors land with the formal JSON-vector loader in P2.
+- [ ] CPU profile recorded; meets `08 §2.5` Phase 2 gate threshold for `1D-32-agent` — pending; `tools/sfs_profile/` micro-benchmark.
+- [ ] No allocations on the audio thread (Catch2 fixture override) — pending; the engine doesn't *currently* allocate inside `Voice::renderBlock` but the fixture isn't yet wired to enforce it.
+- [ ] FTZ/DAZ verified at audio-thread entry (per-platform unit test) — pending; `juce::ScopedNoDenormals` is set in `processBlock` but no test asserts MXCSR/FPCR bits.
+- [ ] Doc-09 diff non-empty (or "verified, no change") and propagated — `sfs-spec/02 §6` (DC blocker) needs amendment given the energy-conservation issue we hit; queued for the next spec touch.
+- [ ] `docs/journals/phase-1-cpu-profile.md` and `docs/journals/phase-1-macro-feel.md` committed — pending.
+- [ ] Annotated `git tag phase-1-gate` with gate-evidence summary — pending the contract tests + journals.
+
+Tag `phase-1-engine` already marks the cross-platform-determinism-validated milestone (commit `2c1de67`).
 
 ## 8. CI delta turning on at end of Phase 1
 

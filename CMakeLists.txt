@@ -181,6 +181,11 @@ if (SFS_BUILD_TOOLS AND SFS_BUILD_PLUGIN)
     add_subdirectory(tools/wav_diff)
 endif()
 
+# CPU profile micro-benchmark — JUCE-free, only depends on the engine.
+if (SFS_BUILD_TOOLS)
+    add_subdirectory(tools/sfs_profile)
+endif()
+
 # ------------------------------------------------------------------------------
 # Deferred to later Phase 0 steps (recorded here so the order is visible)
 # ------------------------------------------------------------------------------
