@@ -30,9 +30,16 @@ public:
     void noteOn(int midiNote, float velocity);
     void noteOff();
 
-    // Render `numSamples` of mono float audio. Caller is responsible for any
-    // multichannel duplication; Phase 1 is mono-only.
+    // Render `numSamples` of mono float audio. Reads at harvesterPosition_;
+    // independent DC blocker state.
     void renderBlock(float* out, int numSamples) noexcept;
+
+    // Render `numSamples` of stereo audio into separate left + right buffers.
+    // Two harvesters at positions 0 and N/2 (spec sfs-spec/04 §3.2 "stereo
+    // default"); independent DC blockers per channel. Voice spends roughly
+    // 2× the read-side cost vs mono — substrate.step() and the agent loop
+    // are unchanged, only the harvester read + DC + soft-clip happen twice.
+    void renderBlockStereo(float* outL, float* outR, int numSamples) noexcept;
 
     [[nodiscard]] bool isGated() const noexcept { return gated_; }
     [[nodiscard]] float sampleRate() const noexcept { return sampleRate_; }
@@ -72,13 +79,27 @@ private:
     // and revisits when DAMPING's full fan-out lands.
     float substrateKappa_ = 0.05f;
 
-    // DC blocker state for the harvester read (sfs-spec/02 §6 — applied at
+    // DC blocker state for the harvester reads (sfs-spec/02 §6 — applied at
     // the output, not on the substrate state). First-order high-pass:
     //   y[n] = x[n] - x[n-1] + α·y[n-1]
-    // α derived from sampleRate at construction.
+    // α derived from sampleRate at construction. Mono and stereo render
+    // paths each have their own state — switching paths between blocks
+    // doesn't share the cache, but for a single render path the state
+    // carries cleanly between blocks.
     float dcBlockerAlpha_ = 0.999346f; // 1 - 2π·5/48000
-    float dcBlockerLastInput_ = 0.0f;  // x[n-1]
-    float dcBlockerLastOutput_ = 0.0f; // y[n-1]
+    float dcBlockerLastInput_ = 0.0f;  // x[n-1]   (mono)
+    float dcBlockerLastOutput_ = 0.0f; // y[n-1]   (mono)
+    float dcBlockerLastInputL_ = 0.0f; // stereo L
+    float dcBlockerLastOutputL_ = 0.0f;
+    float dcBlockerLastInputR_ = 0.0f; // stereo R
+    float dcBlockerLastOutputR_ = 0.0f;
+
+    // Stereo harvester positions. Mono renderBlock uses harvesterPosition_
+    // (set to substrate midpoint by default, kept for test compatibility).
+    // Stereo uses these two — sfs-spec/04 §3.2 "two harvesters at substrate
+    // positions 0.0 and N/2.0".
+    float harvesterPositionStereoL_ = 0.0f;
+    float harvesterPositionStereoR_ = 0.0f;
 };
 
 } // namespace sfs::engine

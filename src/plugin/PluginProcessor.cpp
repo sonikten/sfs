@@ -101,13 +101,24 @@ void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
         }
     }
 
-    // Render mono into channel 0 then duplicate.
-    auto* const left = buffer.getWritePointer(0);
-    voice_->renderBlock(left, numSamples);
-
-    for (int ch = 1; ch < numChannels; ++ch)
+    // Stereo render: two harvesters at substrate positions 0 and N/2 give
+    // inter-channel decorrelation from the substrate's wave propagation
+    // between them (sfs-spec/04 §3.2). Mono falls back to a duplicate.
+    if (numChannels >= 2)
     {
-        buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
+        auto* const outL = buffer.getWritePointer(0);
+        auto* const outR = buffer.getWritePointer(1);
+        voice_->renderBlockStereo(outL, outR, numSamples);
+        // Higher channel counts (Phase 3+) duplicate L for now.
+        for (int ch = 2; ch < numChannels; ++ch)
+        {
+            buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
+        }
+    }
+    else
+    {
+        auto* const left = buffer.getWritePointer(0);
+        voice_->renderBlock(left, numSamples);
     }
 }
 

@@ -56,6 +56,12 @@ Voice::Voice(int substrateCells, int agentCount, float sampleRate)
     // any single-agent deposit at position 0 so the substrate has to actually
     // propagate the wave to be heard.
     harvesterPosition_ = static_cast<float>(substrateCells) * 0.5f;
+
+    // Stereo: two harvesters at positions 0 and N/2 (sfs-spec/04 §3.2).
+    // The ring's wave propagation between them produces natural inter-channel
+    // decorrelation.
+    harvesterPositionStereoL_ = 0.0f;
+    harvesterPositionStereoR_ = static_cast<float>(substrateCells) * 0.5f;
 }
 
 void Voice::noteOn(int midiNote, float velocity)
@@ -117,6 +123,58 @@ void Voice::renderBlock(float* out, int numSamples) noexcept
     }
     dcBlockerLastInput_ = prevIn;
     dcBlockerLastOutput_ = prevOut;
+}
+
+void Voice::renderBlockStereo(float* outL, float* outR, int numSamples) noexcept
+{
+    if (outL == nullptr || outR == nullptr || numSamples <= 0)
+    {
+        return;
+    }
+
+    const sfs::dsp::ScopedFlushToZero scopedFtz;
+
+    // Same block-rate macro fan-out as the mono path. Could be hoisted
+    // into a private helper if the mono path stays around long-term.
+    macros_.clampInPlace();
+    const sfs::engine::macros::InternalFields fields = sfs::engine::macros::fanOut(macros_);
+    substrate_.setCoefficients(fields.substrateC2, substrateKappa_, fields.substrateGamma);
+    for (int i = 0; i < agents_.activeCount(); ++i)
+    {
+        agents_.mutableAgent(i).modSensitivity = fields.agentModSensitivityScale;
+    }
+
+    const float a = dcBlockerAlpha_;
+    float prevInL = dcBlockerLastInputL_;
+    float prevOutL = dcBlockerLastOutputL_;
+    float prevInR = dcBlockerLastInputR_;
+    float prevOutR = dcBlockerLastOutputR_;
+
+    const float posL = harvesterPositionStereoL_;
+    const float posR = harvesterPositionStereoR_;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        agents_.processOneSample(substrate_, sampleRate_);
+        substrate_.step();
+
+        const float rawL = substrate_.read(posL);
+        const float blockedL = rawL - prevInL + a * prevOutL;
+        prevInL = rawL;
+        prevOutL = blockedL;
+        outL[i] = softClip(kOutputPreGain * blockedL);
+
+        const float rawR = substrate_.read(posR);
+        const float blockedR = rawR - prevInR + a * prevOutR;
+        prevInR = rawR;
+        prevOutR = blockedR;
+        outR[i] = softClip(kOutputPreGain * blockedR);
+    }
+
+    dcBlockerLastInputL_ = prevInL;
+    dcBlockerLastOutputL_ = prevOutL;
+    dcBlockerLastInputR_ = prevInR;
+    dcBlockerLastOutputR_ = prevOutR;
 }
 
 } // namespace sfs::engine
