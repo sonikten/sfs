@@ -14,6 +14,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 
 using sfs::engine::rng::philox4x32_10;
