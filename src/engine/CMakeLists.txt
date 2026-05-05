@@ -19,6 +19,7 @@ target_link_libraries (sfs_engine
     PUBLIC
         SFS::Engine::Agents
         SFS::Engine::Substrate
+        SFS::Dsp                         # for ScopedFlushToZero in Voice
         SFS::DeterminismFlags
     PRIVATE
         SFS::StrictWarnings

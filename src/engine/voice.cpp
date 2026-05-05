@@ -4,6 +4,8 @@
 
 #include "voice.h"
 
+#include "dsp/denormal_flush.h"
+
 #include <cmath>
 
 namespace sfs::engine
@@ -74,6 +76,12 @@ void Voice::renderBlock(float* out, int numSamples) noexcept
     {
         return;
     }
+
+    // Self-defend FTZ/DAZ even when called outside a JUCE plug-in context
+    // (tests, sfs_render, sfs_profile). The plug-in path also sets
+    // juce::ScopedNoDenormals at processBlock entry; both nest cleanly
+    // because both are RAII scopes that save/restore.
+    const sfs::dsp::ScopedFlushToZero scopedFtz;
 
     const float pos = harvesterPosition_;
     const float a = dcBlockerAlpha_;

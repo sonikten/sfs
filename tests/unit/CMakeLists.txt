@@ -9,6 +9,7 @@ add_executable (sfs_unit_tests
     agent_pool_test.cpp
     voice_test.cpp
     no_alloc_test.cpp
+    denormal_flush_test.cpp
 )
 
 target_link_libraries (sfs_unit_tests
