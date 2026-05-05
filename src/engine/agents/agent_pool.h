@@ -10,7 +10,8 @@
 //   - Per-agent migration: constant drift r_i + Gaussian ε_i (sample-indexed
 //     Philox). Magnitudes scale block-rate from MIGRATION macro fan-out.
 //   - Per-agent detune from baseFrequency × (1-COHERENCE)² fan-out.
-//   - Simple gate envelope (on/off, no ADSR shaping yet).
+//   - Per-voice ADSR amplitude shaping via setVoiceGain() (per-agent
+//     `envelope` field still binary; the voice envelope multiplies on top).
 //   - Multiplicative bend per sfs-spec/03 §2: f_inst = f_i · (1 + m_i · u_at)
 //
 // The pool owns the Agent state, but the per-sample compute lives in
@@ -114,6 +115,13 @@ public:
 
     [[nodiscard]] int activeCount() const noexcept { return activeCount_; }
 
+    // Phase 2 voice-level amplitude gain. Voice writes the per-sample
+    // envelope value here just before calling processOneSample(); the
+    // deposit contribution = w · a · e · y is multiplied by voiceGain.
+    // Default 1.0f preserves Phase 1 behaviour for legacy callers.
+    void setVoiceGain(float g) noexcept { voiceGain_ = g; }
+    [[nodiscard]] float voiceGain() const noexcept { return voiceGain_; }
+
     // Phase 2 DENSITY wiring: live-resize the active subset of agents.
     // Clamps to [0, agents_.size()]. Newly activated agents inherit the
     // state populated at noteOn (frequency, phase, envelope) — the pool
@@ -130,6 +138,7 @@ public:
 private:
     int activeCount_ = 0;
     std::uint64_t currentSampleIndex_ = 0; // sample counter since last noteOn
+    float voiceGain_ = 1.0f;
     std::vector<Agent> agents_;
 };
 

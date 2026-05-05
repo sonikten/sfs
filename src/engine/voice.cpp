@@ -78,6 +78,14 @@ void Voice::applyMacroFanOut(const sfs::engine::macros::InternalFields& fields) 
 Voice::Voice(int substrateCells, int agentCount, float sampleRate)
     : substrate_(substrateCells, sampleRate), agents_(agentCount), sampleRate_(sampleRate)
 {
+    // Phase 2 amplitude envelope. Defaults are middle-of-road
+    // pad/lead values; preset format will overwrite in Phase 4.
+    ampEnv_.setSampleRate(sampleRate);
+    ampEnv_.setAttackMs(10.0f);
+    ampEnv_.setDecayMs(120.0f);
+    ampEnv_.setSustainLevel(0.75f);
+    ampEnv_.setReleaseMs(250.0f);
+
     // Default coefficients chosen for an audible "alive" feel out of the box,
     // close to sfs-spec/09 §3.7 internal defaults. Phase 2's macro fan-out
     // will set these from TENSION/DAMPING/etc.
@@ -102,12 +110,14 @@ Voice::Voice(int substrateCells, int agentCount, float sampleRate)
 void Voice::noteOn(int midiNote, float velocity)
 {
     agents_.noteOn(midiNote, velocity);
+    ampEnv_.noteOn();
     gated_ = true;
 }
 
 void Voice::noteOff()
 {
     agents_.noteOff();
+    ampEnv_.noteOff();
     gated_ = false;
 }
 
@@ -144,6 +154,7 @@ void Voice::renderBlock(float* out, int numSamples) noexcept
     float prevOut = dcBlockerLastOutput_;
     for (int i = 0; i < numSamples; ++i)
     {
+        agents_.setVoiceGain(ampEnv_.tick());
         agents_.processOneSample(substrate_, sampleRate_);
         substrate_.step();
         const float raw = substrate_.read(pos);
@@ -180,6 +191,7 @@ void Voice::renderBlockStereo(float* outL, float* outR, int numSamples) noexcept
 
     for (int i = 0; i < numSamples; ++i)
     {
+        agents_.setVoiceGain(ampEnv_.tick());
         agents_.processOneSample(substrate_, sampleRate_);
         substrate_.step();
 

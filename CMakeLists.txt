@@ -166,6 +166,7 @@ add_subdirectory(src/engine/rng)
 add_subdirectory(src/engine/substrate)
 add_subdirectory(src/engine/agents)
 add_subdirectory(src/engine/macros)
+add_subdirectory(src/engine/envelope)
 add_subdirectory(src/engine)
 
 # JUCE submodule lives at third_party/JUCE (pinned via tools/check_submodule_pins.sh).

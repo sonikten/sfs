@@ -13,6 +13,7 @@
 #pragma once
 
 #include "engine/agents/agent_pool.h"
+#include "engine/envelope/adsr.h"
 #include "engine/macros/macros.h"
 #include "engine/substrate/substrate_1d.h"
 
@@ -51,6 +52,9 @@ public:
     [[nodiscard]] agents::AgentPool& agents() noexcept { return agents_; }
     [[nodiscard]] const agents::AgentPool& agents() const noexcept { return agents_; }
 
+    [[nodiscard]] sfs::engine::envelope::Adsr& ampEnv() noexcept { return ampEnv_; }
+    [[nodiscard]] const sfs::engine::envelope::Adsr& ampEnv() const noexcept { return ampEnv_; }
+
     void setHarvesterPosition(float position) noexcept { harvesterPosition_ = position; }
     [[nodiscard]] float harvesterPosition() const noexcept { return harvesterPosition_; }
 
@@ -72,6 +76,7 @@ private:
 
     substrate::Substrate1D substrate_;
     agents::AgentPool agents_;
+    sfs::engine::envelope::Adsr ampEnv_;
     float sampleRate_;
     float harvesterPosition_ = 0.0f;
     bool gated_ = false;

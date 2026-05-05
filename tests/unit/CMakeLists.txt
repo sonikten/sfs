@@ -14,6 +14,7 @@ add_executable (sfs_unit_tests
     no_alloc_test.cpp
     denormal_flush_test.cpp
     macros_test.cpp
+    adsr_test.cpp
 )
 
 target_link_libraries (sfs_unit_tests
@@ -23,6 +24,7 @@ target_link_libraries (sfs_unit_tests
         SFS::Engine::Substrate
         SFS::Engine::Agents
         SFS::Engine::Macros
+        SFS::Engine::Envelope
         SFS::Engine
         SFS::DeterminismFlags
         SFS::StrictWarnings

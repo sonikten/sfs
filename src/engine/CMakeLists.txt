@@ -21,6 +21,7 @@ target_link_libraries (sfs_engine
         SFS::Engine::Agents
         SFS::Engine::Substrate
         SFS::Engine::Macros              # MacroValues + fanOut
+        SFS::Engine::Envelope            # per-voice ADSR
         SFS::Dsp                         # for ScopedFlushToZero in Voice
         SFS::DeterminismFlags
     PRIVATE

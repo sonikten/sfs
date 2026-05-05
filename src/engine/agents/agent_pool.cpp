@@ -225,7 +225,9 @@ void AgentPool::processOneSample(sfs::engine::substrate::Substrate1D& substrate,
         }
 
         // 4. Deposit the scaled contribution back into the substrate.
-        const float contribution = a.depositWeight * a.amplitude * a.envelope * y;
+        //    voiceGain_ carries the per-sample ADSR envelope from Voice; in
+        //    Phase 1 it stays at 1.0 (binary gate via a.envelope).
+        const float contribution = a.depositWeight * a.amplitude * a.envelope * voiceGain_ * y;
         substrate.deposit(a.position, contribution);
 
         // 5. Advance phase using the bent frequency. Wrap to [0, 1).
