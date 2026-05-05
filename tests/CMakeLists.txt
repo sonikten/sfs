@@ -22,3 +22,4 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/third_party/Catch2/extras)
 include(Catch)
 
 add_subdirectory(unit)
+add_subdirectory(contract)
