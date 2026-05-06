@@ -102,11 +102,12 @@ TEST_CASE("Voice::renderBlock makes no allocations after the first warm-up call"
     constexpr int kSamples = 256;
     std::vector<float> out(static_cast<std::size_t>(kSamples), 0.0f);
 
-    // Warm-up render — Substrate1D::step() currently allocates a per-call
-    // working vector for the v-Phase-A buffer. That allocation should be
-    // hoisted to a member buffer (queued as a Phase 2 cleanup); for now,
-    // measure post-warm-up behaviour.
-    voice.renderBlock(out.data(), kSamples);
+    // Warm up several blocks — first few may allocate (lazy state init,
+    // string interning in Catch2 runner, etc.). Steady-state must be zero.
+    for (int i = 0; i < 10; ++i)
+    {
+        voice.renderBlock(out.data(), kSamples);
+    }
 
     {
         AllocGuard guard;
@@ -120,8 +121,15 @@ TEST_CASE("Voice::renderBlock makes no allocations after the first warm-up call"
         // future regressions (someone adding `std::string +=` in the loop,
         // for example) are still caught loudly.
         CAPTURE(guard.calls(), guard.bytes());
-        REQUIRE(guard.calls() <= 100);       // at most one allocation per renderBlock
-        REQUIRE(guard.bytes() < 200 * 4096); // < 200 × N=1024 floats per block worth
+        // Phase 2: substrate's vNewBuf is a member, VoiceManager's scratch
+        // buffers are members, all engine state is in struct/array members.
+        // Empirical observation: 4 allocs / ~4 KB across 100 blocks come
+        // from incidental infrastructure (likely Catch2 internals leaking
+        // through the global operator new override); bound at ≤ 10 / 8 KB
+        // so any real regression (e.g. someone adding a per-block vector)
+        // would still trip the guard.
+        REQUIRE(guard.calls() <= 10);
+        REQUIRE(guard.bytes() < 8192);
     }
 }
 
@@ -136,8 +144,11 @@ TEST_CASE("VoiceManager::renderBlockStereo makes no allocations after warm-up", 
     std::vector<float> outL(static_cast<std::size_t>(kSamples), 0.0f);
     std::vector<float> outR(static_cast<std::size_t>(kSamples), 0.0f);
 
-    // Warm-up render to avoid counting any first-call allocations.
-    vm.renderBlockStereo(outL.data(), outR.data(), kSamples);
+    // Warm up several blocks — first few may allocate (lazy state init).
+    for (int i = 0; i < 10; ++i)
+    {
+        vm.renderBlockStereo(outL.data(), outR.data(), kSamples);
+    }
 
     {
         AllocGuard guard;
@@ -147,11 +158,8 @@ TEST_CASE("VoiceManager::renderBlockStereo makes no allocations after warm-up", 
             vm.renderBlockStereo(outL.data(), outR.data(), kSamples);
         }
         CAPTURE(guard.calls(), guard.bytes());
-        // Phase 2 acceptance: the same per-Voice substrate Phase A buffer
-        // alloc per voice per block. With 3 voices active × 100 blocks
-        // ≤ 300 allocs. Future Phase 3 work hoists Substrate1D::vNew into
-        // the substrate state proper.
-        REQUIRE(guard.calls() <= 300);       // ≤ 1 alloc per voice per block
-        REQUIRE(guard.bytes() < 600 * 4096); // generous bound
+        // Phase 2: same near-zero bound as the Voice case above.
+        REQUIRE(guard.calls() <= 10);
+        REQUIRE(guard.bytes() < 8192);
     }
 }
