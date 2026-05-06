@@ -154,14 +154,19 @@ void writeWav(const juce::File& dest, const std::vector<float>& interleaved, int
         std::fprintf(stderr, "WAV open failed: %s\n", dest.getFullPathName().toRawUTF8());
         return;
     }
-    auto* writer = wav.createWriterFor(stream.get(), sampleRate, channels, 32, {}, 0);
+    auto* writer = wav.createWriterFor(stream.get(),
+                                       static_cast<double>(sampleRate),
+                                       static_cast<unsigned int>(channels),
+                                       32,
+                                       {},
+                                       0);
     if (writer == nullptr)
     {
         std::fprintf(stderr, "WAV writer create failed\n");
         return;
     }
     stream.release(); // writer takes ownership
-    const int numFrames = static_cast<int>(interleaved.size() / channels);
+    const int numFrames = static_cast<int>(interleaved.size() / static_cast<std::size_t>(channels));
     juce::AudioBuffer<float> buffer(channels, numFrames);
     for (int ch = 0; ch < channels; ++ch)
     {

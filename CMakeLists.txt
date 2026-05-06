@@ -18,6 +18,12 @@ project(SFS
     LANGUAGES C CXX        # C is needed by some JUCE module dependencies
 )
 
+# Always emit compile_commands.json so clangd / IDE indexers find headers
+# without needing per-developer setup. Lives in the build directory; many
+# editors auto-discover it there, but a symlink at the project root is
+# more reliable.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Honour visibility presets, position-independent code, modern CMake policies.
 if (POLICY CMP0091)
     cmake_policy(SET CMP0091 NEW)   # MSVC runtime library selectable via property
