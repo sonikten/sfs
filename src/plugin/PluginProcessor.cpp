@@ -108,6 +108,12 @@ void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
         {
             voiceManager_->allNotesOff();
         }
+        else if (msg.isController() && msg.getControllerNumber() == 1)
+        {
+            // Mod wheel (CC1) — fed into the mod matrix as a Phase 2
+            // source. Normalised to [0, 1] from the MIDI 0..127 byte.
+            voiceManager_->setMidiCc1(static_cast<float>(msg.getControllerValue()) / 127.0f);
+        }
     }
 
     // Stereo render: two harvesters at substrate positions 0 and N/2 give

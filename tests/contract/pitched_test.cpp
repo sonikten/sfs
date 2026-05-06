@@ -127,6 +127,9 @@ TEST_CASE("Pitched contract (Phase 1 form): chromatic notes match expected pitch
         // fan-out isn't yet applied to live state.
         voice.macros().excitation = 0.0f;
         voice.macros().migration = 0.0f;
+        voice.macros().coherence = 1.0f;
+        // Pitched preset: empty mod matrix — keeps the fundamental clean.
+        voice.modMatrix().clearAllSlots();
         voice.noteOn(midi, 1.0f);
         auto& agents = voice.agents();
         for (int i = 0; i < agents.activeCount(); ++i)

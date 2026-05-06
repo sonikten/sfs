@@ -51,6 +51,12 @@ public:
     void setUniformShape(sfs::engine::agents::AgentShape s) noexcept { uniformShape_ = s; }
     [[nodiscard]] sfs::engine::agents::AgentShape uniformShape() const noexcept { return uniformShape_; }
 
+    // Phase 2 mod-matrix block-rate inputs. The plug-in shell writes
+    // these from incoming MIDI; each voice picks them up via its mod
+    // matrix evaluation each block.
+    void setMidiCc1(float v) noexcept { midiCc1_ = v; }
+    [[nodiscard]] float midiCc1() const noexcept { return midiCc1_; }
+
     // Inspection.
     [[nodiscard]] int activeVoiceCount() const noexcept;
 
@@ -73,6 +79,7 @@ private:
     std::array<VoiceSlot, kMaxVoices> slots_;
     sfs::engine::macros::MacroValues macros_{};
     sfs::engine::agents::AgentShape uniformShape_ = sfs::engine::agents::AgentShape::Sine;
+    float midiCc1_ = 0.0f;
     std::uint64_t nextAge_ = 1; // monotonically increasing
 };
 

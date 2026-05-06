@@ -5,7 +5,9 @@
 #include "voice.h"
 
 #include "dsp/denormal_flush.h"
+#include "engine/rng/philox.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace sfs::engine
@@ -39,6 +41,38 @@ constexpr float kOutputPreGain = 0.5f;
 }
 
 } // namespace
+
+// Run the mod matrix once per block, returning the macro values modulated
+// by all active slots. The return-by-value is deliberate — callers want a
+// snapshot for the single fan-out call below; we don't want to mutate the
+// host-parameter state stored in macros_.
+sfs::engine::macros::MacroValues Voice::applyModMatrix(const sfs::engine::macros::MacroValues& base) const noexcept
+{
+    using namespace sfs::engine::mod_matrix;
+
+    std::array<float, ModMatrix::kNumSources> sources{};
+    sources[static_cast<std::size_t>(Source::Lfo1)] = lfoValues_[0];
+    sources[static_cast<std::size_t>(Source::Lfo2)] = lfoValues_[1];
+    sources[static_cast<std::size_t>(Source::Lfo3)] = lfoValues_[2];
+    sources[static_cast<std::size_t>(Source::Lfo4)] = lfoValues_[3];
+    sources[static_cast<std::size_t>(Source::Env1)] = ampEnv_.value();
+    sources[static_cast<std::size_t>(Source::KeyVelocity)] = keyVelocity_;
+    sources[static_cast<std::size_t>(Source::MidiCc1)] = midiCc1_;
+    sources[static_cast<std::size_t>(Source::Random)] = randomPerNote_;
+
+    std::array<float, ModMatrix::kNumDestinations> deltas{};
+    modMatrix_.evaluate(sources, deltas);
+
+    sfs::engine::macros::MacroValues out = base;
+    out.tension += deltas[static_cast<std::size_t>(Destination::Tension)];
+    out.damping += deltas[static_cast<std::size_t>(Destination::Damping)];
+    out.density += deltas[static_cast<std::size_t>(Destination::Density)];
+    out.migration += deltas[static_cast<std::size_t>(Destination::Migration)];
+    out.coherence += deltas[static_cast<std::size_t>(Destination::Coherence)];
+    out.excitation += deltas[static_cast<std::size_t>(Destination::Excitation)];
+    out.clampInPlace();
+    return out;
+}
 
 // Apply the block-rate macro fan-out to substrate + every active agent.
 // Wires every InternalField that maps cleanly onto Phase 2 state:
@@ -103,6 +137,15 @@ Voice::Voice(int substrateCells, int agentCount, float sampleRate)
         lfos_[static_cast<std::size_t>(i)].setShape(kDefaultLfoShapes[i]);
     }
 
+    // Phase 2 default mod-matrix wiring. The preset format (Phase 4) takes
+    // over once it lands; until then this gives the stock plug-in audible
+    // movement and a working mod-wheel response. Slots 4-15 are inactive.
+    using namespace sfs::engine::mod_matrix;
+    modMatrix_.setSlot(0, Source::MidiCc1, Destination::Migration, 0.5f);
+    modMatrix_.setSlot(1, Source::Lfo1, Destination::Tension, 0.10f);
+    modMatrix_.setSlot(2, Source::Lfo2, Destination::Coherence, -0.08f);
+    modMatrix_.setSlot(3, Source::KeyVelocity, Destination::Excitation, 0.30f);
+
     // Default coefficients chosen for an audible "alive" feel out of the box,
     // close to sfs-spec/09 §3.7 internal defaults. Phase 2's macro fan-out
     // will set these from TENSION/DAMPING/etc.
@@ -128,6 +171,7 @@ void Voice::noteOn(int midiNote, float velocity)
 {
     agents_.noteOn(midiNote, velocity);
     ampEnv_.noteOn();
+    keyVelocity_ = std::clamp(velocity, 0.0f, 1.0f);
     // Phase 2 LFOs retrigger from phase 0 at noteOn (free-running becomes
     // a host-parameter choice when the preset format lands). Seed each
     // LFO's S&H stream from the canonical (preset, voice, lfo) tuple.
@@ -140,6 +184,14 @@ void Voice::noteOn(int midiNote, float velocity)
                                                       kPhase2VoiceIndex,
                                                       static_cast<std::uint16_t>(i));
     }
+
+    // RANDOM source (sfs-spec/06 §1.2 stream 8 ModRandomSource): one draw
+    // per noteOn, mapped to [-1, 1).
+    sfs::engine::rng::Philox4x32Stream randomStream;
+    randomStream.seed(kPhase2PresetSeed, kPhase2VoiceIndex, 0, sfs::engine::rng::StreamId::ModRandomSource);
+    const float u01 = randomStream.nextFloat01();
+    randomPerNote_ = u01 * 2.0f - 1.0f;
+
     gated_ = true;
 }
 
@@ -174,7 +226,8 @@ void Voice::renderBlock(float* out, int numSamples) noexcept
     // (DENSITY), live re-seed of migration noise scales (MIGRATION), and
     // harmonic_set logic (COHERENCE).
     macros_.clampInPlace();
-    const sfs::engine::macros::InternalFields fields = sfs::engine::macros::fanOut(macros_);
+    const sfs::engine::macros::MacroValues modulated = applyModMatrix(macros_);
+    const sfs::engine::macros::InternalFields fields = sfs::engine::macros::fanOut(modulated);
     applyMacroFanOut(fields);
 
     const float pos = harvesterPosition_;
@@ -214,7 +267,8 @@ void Voice::renderBlockStereo(float* outL, float* outR, int numSamples) noexcept
     const sfs::dsp::ScopedFlushToZero scopedFtz;
 
     macros_.clampInPlace();
-    const sfs::engine::macros::InternalFields fields = sfs::engine::macros::fanOut(macros_);
+    const sfs::engine::macros::MacroValues modulated = applyModMatrix(macros_);
+    const sfs::engine::macros::InternalFields fields = sfs::engine::macros::fanOut(modulated);
     applyMacroFanOut(fields);
 
     const float a = dcBlockerAlpha_;

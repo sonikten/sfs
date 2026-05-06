@@ -16,6 +16,7 @@ add_executable (sfs_unit_tests
     macros_test.cpp
     adsr_test.cpp
     lfo_test.cpp
+    mod_matrix_test.cpp
 )
 
 target_link_libraries (sfs_unit_tests
@@ -27,6 +28,7 @@ target_link_libraries (sfs_unit_tests
         SFS::Engine::Macros
         SFS::Engine::Envelope
         SFS::Engine::Lfo
+        SFS::Engine::ModMatrix
         SFS::Engine
         SFS::DeterminismFlags
         SFS::StrictWarnings

@@ -130,6 +130,9 @@ TEST_CASE("Drone contract (degraded Phase 1 form): spectral centroid is stable",
     voice.macros().excitation = 0.0f;
     voice.macros().migration = 0.0f;
     voice.macros().coherence = 1.0f;
+    // Drone preset: empty mod matrix — the default slots wobble the
+    // macros around, which is the wrong contract for "stable drone".
+    voice.modMatrix().clearAllSlots();
     voice.noteOn(60, 1.0f); // C4
     auto& agents = voice.agents();
     // Cover the first sample before the first block's fan-out runs.

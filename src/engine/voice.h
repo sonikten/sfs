@@ -16,6 +16,7 @@
 #include "engine/envelope/adsr.h"
 #include "engine/lfo/lfo.h"
 #include "engine/macros/macros.h"
+#include "engine/mod_matrix/mod_matrix.h"
 #include "engine/substrate/substrate_1d.h"
 
 #include <array>
@@ -63,6 +64,15 @@ public:
     [[nodiscard]] const sfs::engine::lfo::Lfo& lfo(int i) const noexcept { return lfos_[static_cast<std::size_t>(i)]; }
     [[nodiscard]] float lfoValue(int i) const noexcept { return lfoValues_[static_cast<std::size_t>(i)]; }
 
+    [[nodiscard]] sfs::engine::mod_matrix::ModMatrix& modMatrix() noexcept { return modMatrix_; }
+    [[nodiscard]] const sfs::engine::mod_matrix::ModMatrix& modMatrix() const noexcept { return modMatrix_; }
+
+    // Mod-matrix source inputs that the plug-in shell writes block-rate.
+    void setMidiCc1(float v) noexcept { midiCc1_ = v; }
+    [[nodiscard]] float midiCc1() const noexcept { return midiCc1_; }
+    [[nodiscard]] float keyVelocity() const noexcept { return keyVelocity_; }
+    [[nodiscard]] float randomPerNote() const noexcept { return randomPerNote_; }
+
     void setHarvesterPosition(float position) noexcept { harvesterPosition_ = position; }
     [[nodiscard]] float harvesterPosition() const noexcept { return harvesterPosition_; }
 
@@ -81,12 +91,17 @@ public:
 
 private:
     void applyMacroFanOut(const sfs::engine::macros::InternalFields& fields) noexcept;
+    sfs::engine::macros::MacroValues applyModMatrix(const sfs::engine::macros::MacroValues& base) const noexcept;
 
     substrate::Substrate1D substrate_;
     agents::AgentPool agents_;
     sfs::engine::envelope::Adsr ampEnv_;
     std::array<sfs::engine::lfo::Lfo, kLfoCount> lfos_{};
     std::array<float, kLfoCount> lfoValues_{}; // last-tick cache
+    sfs::engine::mod_matrix::ModMatrix modMatrix_{};
+    float keyVelocity_ = 0.0f;
+    float midiCc1_ = 0.0f;
+    float randomPerNote_ = 0.0f;
     float sampleRate_;
     float harvesterPosition_ = 0.0f;
     bool gated_ = false;
