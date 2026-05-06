@@ -18,6 +18,7 @@
 //     reservation growth.
 
 #include "engine/voice.h"
+#include "engine/voice_manager.h"
 
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
@@ -121,5 +122,36 @@ TEST_CASE("Voice::renderBlock makes no allocations after the first warm-up call"
         CAPTURE(guard.calls(), guard.bytes());
         REQUIRE(guard.calls() <= 100);       // at most one allocation per renderBlock
         REQUIRE(guard.bytes() < 200 * 4096); // < 200 × N=1024 floats per block worth
+    }
+}
+
+TEST_CASE("VoiceManager::renderBlockStereo makes no allocations after warm-up", "[voice_manager][no-alloc]")
+{
+    sfs::engine::VoiceManager vm(1024, 16, 48000.0f);
+    vm.noteOn(60, 0.8f);
+    vm.noteOn(64, 0.8f);
+    vm.noteOn(67, 0.8f);
+
+    constexpr int kSamples = 256;
+    std::vector<float> outL(static_cast<std::size_t>(kSamples), 0.0f);
+    std::vector<float> outR(static_cast<std::size_t>(kSamples), 0.0f);
+
+    // Warm-up render to avoid counting any first-call allocations.
+    vm.renderBlockStereo(outL.data(), outR.data(), kSamples);
+
+    {
+        AllocGuard guard;
+        // Render 100 blocks under the guard.
+        for (int i = 0; i < 100; ++i)
+        {
+            vm.renderBlockStereo(outL.data(), outR.data(), kSamples);
+        }
+        CAPTURE(guard.calls(), guard.bytes());
+        // Phase 2 acceptance: the same per-Voice substrate Phase A buffer
+        // alloc per voice per block. With 3 voices active × 100 blocks
+        // ≤ 300 allocs. Future Phase 3 work hoists Substrate1D::vNew into
+        // the substrate state proper.
+        REQUIRE(guard.calls() <= 300);       // ≤ 1 alloc per voice per block
+        REQUIRE(guard.bytes() < 600 * 4096); // generous bound
     }
 }

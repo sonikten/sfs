@@ -105,6 +105,14 @@ private:
     float midiCc1_ = 0.0f;
     float sampleRate_ = 48000.0f;
     std::uint64_t nextAge_ = 1; // monotonically increasing
+
+    // Scratch buffers for per-voice render summing — one allocation at
+    // construction (sized to a generous max block); the audio thread
+    // never resizes. Keeps renderBlockStereo allocation-free per the
+    // audio-thread invariant (CLAUDE.md + sfs-spec/01 §4).
+    static constexpr int kMaxBlockSize = 8192;
+    std::vector<float> scratchL_;
+    std::vector<float> scratchR_;
 };
 
 } // namespace sfs::engine

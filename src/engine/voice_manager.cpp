@@ -19,7 +19,9 @@ VoiceManager::VoiceManager(int substrateCells, int agentCount, float sampleRate)
           VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
           VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
       },
-      sampleRate_(sampleRate)
+      sampleRate_(sampleRate),
+      scratchL_(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+      scratchR_(static_cast<std::size_t>(kMaxBlockSize), 0.0f)
 {
     // Smoothed macros start at the same defaults as the targets so the
     // first render block doesn't have to ramp from zero.
@@ -212,12 +214,22 @@ void VoiceManager::renderBlockStereo(float* outL, float* outR, int numSamples) n
         outR[i] = 0.0f;
     }
 
-    // Per-voice scratch buffers (block-rate stack allocations are NOT in
-    // the audio-thread invariant — Voice::renderBlockStereo allocates
-    // nothing). Phase 2 follow-up: hoist these to a member to skip the
-    // vector construction in the hot block.
-    std::vector<float> bufL(static_cast<std::size_t>(numSamples), 0.0f);
-    std::vector<float> bufR(static_cast<std::size_t>(numSamples), 0.0f);
+    // Per-voice scratch buffers — pre-allocated members. If the host
+    // hands us a block bigger than kMaxBlockSize (8192 samples), we
+    // process it in chunks. Standard JUCE block sizes top out at 2048;
+    // 8192 is comfortable headroom.
+    if (numSamples > kMaxBlockSize)
+    {
+        for (int written = 0; written < numSamples;)
+        {
+            const int chunk = std::min(kMaxBlockSize, numSamples - written);
+            renderBlockStereo(outL + written, outR + written, chunk);
+            written += chunk;
+        }
+        return;
+    }
+    float* const bufL = scratchL_.data();
+    float* const bufR = scratchR_.data();
 
     // Per-parameter smoothing (sfs-spec/05 §4). One-pole low-pass on each
     // macro at ~30 ms time constant. Block-rate smoothing keeps Voice's
@@ -261,11 +273,11 @@ void VoiceManager::renderBlockStereo(float* outL, float* outR, int numSamples) n
         s.voice.setUniformShape(uniformShape_);
         s.voice.setMidiCc1(midiCc1_);
 
-        s.voice.renderBlockStereo(bufL.data(), bufR.data(), numSamples);
+        s.voice.renderBlockStereo(bufL, bufR, numSamples);
         for (int i = 0; i < numSamples; ++i)
         {
-            outL[i] += bufL[static_cast<std::size_t>(i)];
-            outR[i] += bufR[static_cast<std::size_t>(i)];
+            outL[i] += bufL[i];
+            outR[i] += bufR[i];
         }
 
         // Voice "completes" — frees up the slot — when it has fully
