@@ -93,7 +93,7 @@ void Substrate1D::deposit(float position, float amount) noexcept
 
 void Substrate1D::step() noexcept
 {
-    const int N = cellCount_;
+    const int numCells = cellCount_;
     const int mask = cellMask_;
     const float c2 = c2_;
     const float kp = kappa_;
@@ -109,9 +109,9 @@ void Substrate1D::step() noexcept
     // step() allocation-free (audio-thread invariant; sfs-spec/01 §4).
 
     // Phase A: compute new v from current u and v Laplacians + injection.
-    for (int x = 0; x < N; ++x)
+    for (int x = 0; x < numCells; ++x)
     {
-        const int xL = (x - 1 + N) & mask;
+        const int xL = (x - 1 + numCells) & mask;
         const int xR = (x + 1) & mask;
         const float lapU = u[xL] - 2.0f * u[x] + u[xR];
         const float lapV = v[xL] - 2.0f * v[x] + v[xR];
@@ -119,7 +119,7 @@ void Substrate1D::step() noexcept
     }
 
     // Phase B: integrate u, commit v.
-    for (int x = 0; x < N; ++x)
+    for (int x = 0; x < numCells; ++x)
     {
         u[x] += vNew[x];
         v[x] = vNew[x];
@@ -136,14 +136,14 @@ void Substrate1D::step() noexcept
     // output's high-pass alone can't keep up with at high MIGRATION /
     // EXCITATION; see commit notes for the empirical RMS / ZC trace.
     double meanD = 0.0;
-    for (int x = 0; x < N; ++x)
+    for (int x = 0; x < numCells; ++x)
     {
         meanD += static_cast<double>(u[x]);
     }
-    const float mean = static_cast<float>(meanD / static_cast<double>(N));
+    const float mean = static_cast<float>(meanD / static_cast<double>(numCells));
     if (std::fabs(mean) > 0.0f)
     {
-        for (int x = 0; x < N; ++x)
+        for (int x = 0; x < numCells; ++x)
         {
             u[x] -= mean;
         }
@@ -160,24 +160,10 @@ void Substrate1D::step() noexcept
     // degenerate config can't pump kinetic energy into infinity.
     constexpr float kUMax = 20.0f;
     constexpr float kVMax = 20.0f;
-    for (int x = 0; x < N; ++x)
+    for (int x = 0; x < numCells; ++x)
     {
-        if (u[x] > kUMax)
-        {
-            u[x] = kUMax;
-        }
-        else if (u[x] < -kUMax)
-        {
-            u[x] = -kUMax;
-        }
-        if (v[x] > kVMax)
-        {
-            v[x] = kVMax;
-        }
-        else if (v[x] < -kVMax)
-        {
-            v[x] = -kVMax;
-        }
+        u[x] = std::clamp(u[x], -kUMax, kUMax);
+        v[x] = std::clamp(v[x], -kVMax, kVMax);
     }
 
     std::fill(uInject_.begin(), uInject_.end(), 0.0f);
