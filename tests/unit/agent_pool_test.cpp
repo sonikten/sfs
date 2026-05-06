@@ -109,7 +109,9 @@ TEST_CASE("processOneSample deposits into the substrate when gated on", "[agents
     // With c²=κ=γ=0, the deposit lands at u_inject[0..1] then becomes u[0..1] after step().
     // Sine of 2π·0.25 = sin(π/2) = 1. Deposit = w · a · e · y = 0.05 · 1 · 1 · 1 = 0.05.
     REQUIRE(l2EnergyU(substrate) > 0.0f);
-    REQUIRE(substrate.displacement()[0] == Catch::Approx(0.05f).margin(1e-5f));
+    // DC-removal subtracts mean(u)=0.05/256 from each cell after step().
+    constexpr float kDcOffset = 0.05f / 256.0f;
+    REQUIRE(substrate.displacement()[0] == Catch::Approx(0.05f - kDcOffset).margin(1e-5f));
 }
 
 TEST_CASE("processOneSample does NOT deposit when gated off", "[agents][noteOff-quiet]")
@@ -165,7 +167,9 @@ TEST_CASE("Multiplicative bend changes the phase advance rate", "[agents][bend]"
     substrate.reset();
     substrate.deposit(0.0f, 1.0f); // put a 1.0 spike at cell 0
     substrate.step();
-    REQUIRE(substrate.displacement()[0] == Catch::Approx(1.0f).margin(1e-5f));
+    // DC-removal subtracts mean(u)=1.0/256 from each cell.
+    constexpr float kDcOffset = 1.0f / 256.0f;
+    REQUIRE(substrate.displacement()[0] == Catch::Approx(1.0f - kDcOffset).margin(1e-5f));
 
     AgentPool unbent(1);
     AgentPool bent(1);

@@ -40,6 +40,7 @@ private:
     SfsAudioProcessor& processor_;
     static constexpr int kCells = 1024;
     std::array<float, kCells> snapshot_{};
+    float displayScale_ = 1.0f; // auto-normalising peak
     bool hasSignal_ = false;
 };
 

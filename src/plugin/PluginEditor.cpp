@@ -37,6 +37,42 @@ void SubstrateView::timerCallback()
             v *= 0.85f;
         }
     }
+
+    // The raw substrate state carries a DC offset that the harvester's
+    // output-stage filter strips from the audio (sfs-spec/02 §6 — the
+    // in-state DC blocker breaks energy conservation, so we don't apply it
+    // to u). For visualisation, subtract the mean so the trace shows the
+    // AC content the user actually cares about. Otherwise a held note's
+    // flat-DC substrate would render as a flat line at full deflection.
+    double meanD = 0.0;
+    for (float v : snapshot_)
+    {
+        meanD += static_cast<double>(v);
+    }
+    const float mean = static_cast<float>(meanD / static_cast<double>(kCells));
+    for (auto& v : snapshot_)
+    {
+        v -= mean;
+    }
+
+    // Auto-normalise on the AC peak. Substrate state isn't bounded to ±1;
+    // peaks routinely hit several units. Fast attack, slow release.
+    float peak = 0.0f;
+    for (float v : snapshot_)
+    {
+        const float a = std::fabs(v);
+        if (a > peak)
+        {
+            peak = a;
+        }
+    }
+    constexpr float kFloor = 0.05f; // never normalise to truly tiny values
+    const float targetScale = std::max(peak, kFloor);
+    const float attackAlpha = 0.35f;
+    const float releaseAlpha = 0.03f;
+    const float alpha = (targetScale > displayScale_) ? attackAlpha : releaseAlpha;
+    displayScale_ += (targetScale - displayScale_) * alpha;
+
     hasSignal_ = gotData;
     repaint();
 }
@@ -61,10 +97,12 @@ void SubstrateView::paint(juce::Graphics& g)
 
     juce::Path trace;
     trace.preallocateSpace(kCells * 3);
+    const float invScale = (displayScale_ > 1e-6f) ? (1.0f / displayScale_) : 1.0f;
     for (int i = 0; i < kCells; ++i)
     {
         const float x = bounds.getX() + dx * static_cast<float>(i);
-        const float y = midY - juce::jlimit(-1.0f, 1.0f, snapshot_[static_cast<std::size_t>(i)]) * halfH;
+        const float normalised = juce::jlimit(-1.0f, 1.0f, snapshot_[static_cast<std::size_t>(i)] * invScale);
+        const float y = midY - normalised * halfH;
         if (i == 0)
         {
             trace.startNewSubPath(x, y);
@@ -86,10 +124,20 @@ void SubstrateView::paint(juce::Graphics& g)
         g.fillRect(x - 1.0f, bounds.getBottom() - markerH, 2.0f, markerH);
     }
 
-    // Label.
+    // Label with auto-scale readout so the user knows the substrate's
+    // current peak amplitude (raw, pre-DC-block / pre-clip).
     g.setColour(juce::Colour::fromRGB(80, 90, 110));
     g.setFont(11.0f);
-    g.drawText(hasSignal_ ? "SUBSTRATE" : "SUBSTRATE (idle)", bounds.reduced(8.0f), juce::Justification::topLeft);
+    juce::String label;
+    if (!hasSignal_)
+    {
+        label = "SUBSTRATE (idle)";
+    }
+    else
+    {
+        label = "SUBSTRATE  ±" + juce::String(displayScale_, 2);
+    }
+    g.drawText(label, bounds.reduced(8.0f), juce::Justification::topLeft);
 }
 
 // ----- SfsEditor -------------------------------------------------------------

@@ -123,13 +123,35 @@ void Substrate1D::step() noexcept
         vNew[x] = omg * v[x] + c2 * lapU + kp * lapV + uInject[x];
     }
 
-    // Phase B: integrate u, commit v. NO DC block here — that lives at the
-    // harvester output (Voice::renderBlock) so the substrate state stays
-    // conservative under the wave equation's energy theorem.
+    // Phase B: integrate u, commit v.
     for (int x = 0; x < N; ++x)
     {
         u[x] += vNew[x];
         v[x] = vNew[x];
+    }
+
+    // Spatial DC removal — projects out the k=0 mode of u (a uniform
+    // displacement across the ring). Unlike a per-cell first-order
+    // high-pass (which suppresses all low-frequency modes and breaks the
+    // wave equation's energy conservation), this only kills the truly
+    // uniform offset. Physical AC modes (k ≥ 1) all have ∇²u ≠ 0 and
+    // average to zero spatially, so subtracting the mean leaves them
+    // untouched. Mandatory because asymmetric agent deposits during ADSR
+    // ramps + migration produce a slow DC accumulation that the harvester
+    // output's high-pass alone can't keep up with at high MIGRATION /
+    // EXCITATION; see commit notes for the empirical RMS / ZC trace.
+    double meanD = 0.0;
+    for (int x = 0; x < N; ++x)
+    {
+        meanD += static_cast<double>(u[x]);
+    }
+    const float mean = static_cast<float>(meanD / static_cast<double>(N));
+    if (std::fabs(mean) > 0.0f)
+    {
+        for (int x = 0; x < N; ++x)
+        {
+            u[x] -= mean;
+        }
     }
 
     std::fill(uInject_.begin(), uInject_.end(), 0.0f);

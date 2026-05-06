@@ -85,14 +85,18 @@ TEST_CASE("Linear deposit splits across two cells per the (1-frac, frac) kernel"
 
     // Deposit 1.0 at fractional position 10.25. Linear kernel:
     //   u_inject[10] += 0.75; u_inject[11] += 0.25
-    // After step(): u[10] = 0.75, u[11] = 0.25 (with c²=κ=0, the leapfrog is
-    // v += inject; u += v, so first step puts the injection straight into u).
+    // After step(): u[10] ≈ 0.75 - 1/64, u[11] ≈ 0.25 - 1/64, u[12] ≈ -1/64.
+    // The substrate subtracts the spatial mean of u after each step (DC mode
+    // removal — physical AC modes are untouched, but the k=0 mode that
+    // accumulates from asymmetric agent deposits is killed). Margin widened
+    // from 1e-6 to (1/N + 1e-5) to cover the new offset.
     s.deposit(10.25f, 1.0f);
     s.step();
     const auto* u = s.displacement();
-    REQUIRE(u[10] == Catch::Approx(0.75f).margin(1e-6f));
-    REQUIRE(u[11] == Catch::Approx(0.25f).margin(1e-6f));
-    REQUIRE(u[12] == Catch::Approx(0.0f).margin(1e-6f));
+    constexpr float kDcOffset = 1.0f / 64.0f;
+    REQUIRE(u[10] == Catch::Approx(0.75f - kDcOffset).margin(1e-5f));
+    REQUIRE(u[11] == Catch::Approx(0.25f - kDcOffset).margin(1e-5f));
+    REQUIRE(u[12] == Catch::Approx(-kDcOffset).margin(1e-5f));
 }
 
 TEST_CASE("Linear read interpolates between two cells", "[substrate][1d][read]")
@@ -103,9 +107,11 @@ TEST_CASE("Linear read interpolates between two cells", "[substrate][1d][read]")
     s.deposit(20.0f, 1.0f); // exactly at cell 20, no fractional
     s.step();
 
-    REQUIRE(s.read(20.0f) == Catch::Approx(1.0f).margin(1e-6f));
-    REQUIRE(s.read(20.5f) == Catch::Approx(0.5f).margin(1e-6f)); // 0.5 * u[20] + 0.5 * u[21]
-    REQUIRE(s.read(21.0f) == Catch::Approx(0.0f).margin(1e-6f)); // u[21] is 0
+    // After DC removal: u[20] = 1 - 1/64, u[other] = -1/64.
+    constexpr float kDcOffset = 1.0f / 64.0f;
+    REQUIRE(s.read(20.0f) == Catch::Approx(1.0f - kDcOffset).margin(1e-5f));
+    REQUIRE(s.read(20.5f) == Catch::Approx(0.5f - kDcOffset).margin(1e-5f));
+    REQUIRE(s.read(21.0f) == Catch::Approx(-kDcOffset).margin(1e-5f));
 }
 
 TEST_CASE("Position wraps around the ring (modulo N)", "[substrate][1d][wrap]")
@@ -113,14 +119,15 @@ TEST_CASE("Position wraps around the ring (modulo N)", "[substrate][1d][wrap]")
     Substrate1D s(64, 48000.0f);
     s.setCoefficients(0.0f, 0.0f, 0.0f);
     s.reset();
+    constexpr float kDcOffset = 1.0f / 64.0f;
     s.deposit(64.0f, 1.0f); // wraps to position 0
     s.step();
-    REQUIRE(s.displacement()[0] == Catch::Approx(1.0f).margin(1e-6f));
+    REQUIRE(s.displacement()[0] == Catch::Approx(1.0f - kDcOffset).margin(1e-5f));
 
     s.reset();
     s.deposit(-1.0f, 1.0f); // wraps to position 63
     s.step();
-    REQUIRE(s.displacement()[63] == Catch::Approx(1.0f).margin(1e-6f));
+    REQUIRE(s.displacement()[63] == Catch::Approx(1.0f - kDcOffset).margin(1e-5f));
 }
 
 TEST_CASE("Test vector 1: impulse on a lossless ring propagates", "[substrate][1d][propagation]")
