@@ -20,7 +20,7 @@ concurrency:
 
 env:
   PLUGINVAL_VERSION: v1.0.4   # bump in lockstep with phase-plan when intentional
-  PLUGINVAL_LEVEL: "1"        # Phase 0 baseline; raise as engine matures
+  PLUGINVAL_LEVEL: "5"        # Phase 2: real DSP engine + 23 host params + GUI
 
 jobs:
   validate:
