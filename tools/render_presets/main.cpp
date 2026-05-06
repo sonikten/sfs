@@ -16,7 +16,7 @@
 // contract tests, which only assert the four-corner thresholds; this
 // tool stores the WAVs so a human can audition + a-b them.
 
-#include "engine/voice.h"
+#include "engine/voice_manager.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -210,18 +210,24 @@ int main(int argc, char** argv)
 
     for (const auto& preset : kPresets)
     {
-        sfs::engine::Voice voice(kSubstrateN, kAgentCount, static_cast<float>(kSampleRate));
-        voice.macros().tension = preset.tension;
-        voice.macros().damping = preset.damping;
-        voice.macros().density = preset.density;
-        voice.macros().migration = preset.migration;
-        voice.macros().coherence = preset.coherence;
-        voice.macros().excitation = preset.excitation;
+        // Render through VoiceManager so the harness reflects the full
+        // host-facing path (per-voice + bus soft-clip + macro fan-out
+        // exactly as Live sees it).
+        sfs::engine::VoiceManager vm(kSubstrateN, kAgentCount, static_cast<float>(kSampleRate));
+        vm.macros().tension = preset.tension;
+        vm.macros().damping = preset.damping;
+        vm.macros().density = preset.density;
+        vm.macros().migration = preset.migration;
+        vm.macros().coherence = preset.coherence;
+        vm.macros().excitation = preset.excitation;
         if (preset.clearMatrix)
         {
-            voice.modMatrix().clearAllSlots();
+            for (int slot = 0; slot < sfs::engine::mod_matrix::ModMatrix::kNumSlots; ++slot)
+            {
+                vm.setModMatrixSlotDepth(slot, 0.0f);
+            }
         }
-        voice.noteOn(preset.midiNote, preset.velocity);
+        vm.noteOn(preset.midiNote, preset.velocity);
 
         const int totalSamples = static_cast<int>(kHoldSeconds * static_cast<float>(kSampleRate));
         std::vector<float> interleaved(static_cast<std::size_t>(totalSamples * 2), 0.0f);
@@ -238,7 +244,7 @@ int main(int argc, char** argv)
         while (written < totalSamples)
         {
             const int n = std::min(kBlockSize, totalSamples - written);
-            voice.renderBlockStereo(bufL.data(), bufR.data(), n);
+            vm.renderBlockStereo(bufL.data(), bufR.data(), n);
             for (int i = 0; i < n; ++i)
             {
                 interleaved[static_cast<std::size_t>(2 * (written + i) + 0)] = bufL[static_cast<std::size_t>(i)];
@@ -246,27 +252,28 @@ int main(int argc, char** argv)
             }
             written += n;
 
-            // Sample the substrate state every ~100 ms.
             if ((written / kBlockSize) % 16 == 0)
             {
-                voice.snapshotSubstrate(snap.data(), kSubstrateN);
-                double m = 0.0;
-                float p = 0.0f;
-                for (float v : snap)
+                if (vm.snapshotPrimaryVoiceSubstrate(snap.data(), kSubstrateN))
                 {
-                    m += static_cast<double>(v);
-                    const float a = std::fabs(v);
-                    if (a > p)
+                    double m = 0.0;
+                    float p = 0.0f;
+                    for (float v : snap)
                     {
-                        p = a;
+                        m += static_cast<double>(v);
+                        const float a = std::fabs(v);
+                        if (a > p)
+                        {
+                            p = a;
+                        }
                     }
+                    if (p > substratePeak)
+                    {
+                        substratePeak = p;
+                    }
+                    substrateMeanSum += m / static_cast<double>(kSubstrateN);
+                    ++substrateMeanCount;
                 }
-                if (p > substratePeak)
-                {
-                    substratePeak = p;
-                }
-                substrateMeanSum += m / static_cast<double>(kSubstrateN);
-                ++substrateMeanCount;
             }
         }
 
