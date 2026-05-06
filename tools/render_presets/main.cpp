@@ -54,12 +54,19 @@ struct PresetCfg
 };
 
 const PresetCfg kPresets[] = {
-    // name      T    D    Den  Mig  Coh  Exc   clearMx  note vel
+    // name             T    D    Den  Mig  Coh  Exc   clearMx  note vel
     {"default", 0.5f, 0.3f, 0.6f, 0.2f, 0.8f, 0.3f, false, 60, 1.0f},
     {"drone", 0.5f, 0.3f, 0.6f, 0.0f, 1.0f, 0.0f, true, 60, 1.0f},
     {"pitched", 0.5f, 0.3f, 0.6f, 0.0f, 1.0f, 0.0f, true, 64, 1.0f},
     {"organic", 0.5f, 0.4f, 0.6f, 0.7f, 0.2f, 0.4f, true, 60, 1.0f},
     {"glitch", 0.6f, 0.2f, 0.5f, 0.0f, 0.5f, 0.5f, false, 60, 1.0f},
+    // Extreme / boundary presets — any of these going silent or NaN is a bug.
+    {"all_max", 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, false, 60, 1.0f},
+    {"all_min", 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false, 60, 1.0f},
+    {"max_excite_mig", 0.5f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, false, 60, 1.0f},
+    {"zero_tension", 0.0f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, true, 60, 1.0f},
+    {"max_density", 0.5f, 0.5f, 1.0f, 0.0f, 1.0f, 0.5f, true, 60, 1.0f},
+    {"min_density", 0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 0.5f, true, 60, 1.0f},
 };
 
 struct Stats

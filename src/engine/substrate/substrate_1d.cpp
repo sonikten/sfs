@@ -154,6 +154,37 @@ void Substrate1D::step() noexcept
         }
     }
 
+    // Runaway clamp. The wave equation is well-posed under the CFL bound,
+    // but degenerate parameter corners (c²≈0 + γ≈0 + non-zero deposits)
+    // turn it into a pure integrator that grows linearly without bound.
+    // A hard ±U_MAX clamp on u is a safety net so the user can crank macros
+    // to extremes without the engine blowing up; audibly the substrate
+    // saturates instead of NaN'ing. Picked U_MAX=20 — well above any
+    // physically sensible substrate amplitude, low enough to keep the
+    // harvester read + soft-clip in a sane range. Also clamps v so a
+    // degenerate config can't pump kinetic energy into infinity.
+    constexpr float kUMax = 20.0f;
+    constexpr float kVMax = 20.0f;
+    for (int x = 0; x < N; ++x)
+    {
+        if (u[x] > kUMax)
+        {
+            u[x] = kUMax;
+        }
+        else if (u[x] < -kUMax)
+        {
+            u[x] = -kUMax;
+        }
+        if (v[x] > kVMax)
+        {
+            v[x] = kVMax;
+        }
+        else if (v[x] < -kVMax)
+        {
+            v[x] = -kVMax;
+        }
+    }
+
     std::fill(uInject_.begin(), uInject_.end(), 0.0f);
 }
 

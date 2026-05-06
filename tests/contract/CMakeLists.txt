@@ -21,10 +21,11 @@ function (sfs_add_contract_target name source)
               WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 endfunction()
 
-sfs_add_contract_target (sfs_contract_drone   drone_test.cpp)
-sfs_add_contract_target (sfs_contract_pitched pitched_test.cpp)
-sfs_add_contract_target (sfs_contract_organic organic_test.cpp)
-sfs_add_contract_target (sfs_contract_glitch  glitch_test.cpp)
+sfs_add_contract_target (sfs_contract_drone      drone_test.cpp)
+sfs_add_contract_target (sfs_contract_pitched    pitched_test.cpp)
+sfs_add_contract_target (sfs_contract_organic    organic_test.cpp)
+sfs_add_contract_target (sfs_contract_glitch     glitch_test.cpp)
+sfs_add_contract_target (sfs_contract_param_fuzz param_fuzz_test.cpp)
 
 # Phase 2 plan §3 contract gate matrix:
 #   drone      ENABLED (Phase 2 form, 5s window, cv < 0.05)
