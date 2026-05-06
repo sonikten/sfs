@@ -376,16 +376,71 @@ TEST_CASE("VoiceManager fuzz: silence after allNotesOff is stable", "[contract][
         inspectSubstrate(h, vm, snap);
     }
     vm.allNotesOff();
-    for (int b = 0; b < 384; ++b) // 2 s of release tail + silence
+
+    // Render 2 s of release tail; capture peak in the last 0.5 s.
+    constexpr int kTailBlocks = 384;
+    constexpr int kFinalBlocks = 96; // ~last 0.5 s
+    float finalPeak = 0.0f;
+    for (int b = 0; b < kTailBlocks; ++b)
     {
         vm.renderBlockStereo(bufL.data(), bufR.data(), kBlockSize);
         inspectAndAccumulate(h, bufL.data(), bufR.data(), kBlockSize);
         inspectSubstrate(h, vm, snap);
+        if (b >= kTailBlocks - kFinalBlocks)
+        {
+            for (int i = 0; i < kBlockSize; ++i)
+            {
+                const std::size_t idx = static_cast<std::size_t>(i);
+                finalPeak = std::max(finalPeak, std::max(std::fabs(bufL[idx]), std::fabs(bufR[idx])));
+            }
+        }
     }
     assertHealth("silence_after_allnotesoff", h);
-    // After 2 s of allNotesOff with γ damping, output should be near silent.
-    const int tailStart = 96 * kBlockSize + 96 * kBlockSize; // ~last 1.5 s
-    (void)tailStart;                                         // silence asserted via peak/RMS bounded; explicit decay
-                                                             // assertion lands when the engine adds a per-voice idle
-                                                             // tracker (Phase 3 follow-up).
+
+    // After 2 s of allNotesOff, the substrate's γ damping + ADSR release
+    // should have decayed the output to near-zero. -60 dBFS = 0.001;
+    // assert peak in the last 0.5 s window is below that.
+    INFO("finalPeak in last 0.5s = " << finalPeak);
+    REQUIRE(finalPeak < 0.001f);
+    REQUIRE(vm.activeVoiceCount() == 0);
+}
+
+TEST_CASE("VoiceManager fuzz: noteOn after long idle wakes engine cleanly", "[contract][fuzz][wake]")
+{
+    constexpr int kSampleRate = 48000;
+    constexpr int kBlockSize = 256;
+    VoiceManager vm(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
+
+    std::vector<float> bufL(static_cast<std::size_t>(kBlockSize), 0.0f);
+    std::vector<float> bufR(static_cast<std::size_t>(kBlockSize), 0.0f);
+    std::vector<float> snap(static_cast<std::size_t>(kSubstrateCells), 0.0f);
+
+    RenderHealth h;
+    // Render 1 s of idle silence first.
+    for (int b = 0; b < 192; ++b)
+    {
+        vm.renderBlockStereo(bufL.data(), bufR.data(), kBlockSize);
+        inspectAndAccumulate(h, bufL.data(), bufR.data(), kBlockSize);
+    }
+    // Output should already be silent.
+    REQUIRE(h.peakL < 0.001f);
+    REQUIRE(h.peakR < 0.001f);
+
+    // Now play a note and verify the engine wakes up and produces audio.
+    vm.noteOn(60, 1.0f);
+    float wokePeak = 0.0f;
+    for (int b = 0; b < 96; ++b)
+    {
+        vm.renderBlockStereo(bufL.data(), bufR.data(), kBlockSize);
+        inspectAndAccumulate(h, bufL.data(), bufR.data(), kBlockSize);
+        inspectSubstrate(h, vm, snap);
+        for (int i = 0; i < kBlockSize; ++i)
+        {
+            const std::size_t idx = static_cast<std::size_t>(i);
+            wokePeak = std::max(wokePeak, std::max(std::fabs(bufL[idx]), std::fabs(bufR[idx])));
+        }
+    }
+    assertHealth("wake_after_idle", h);
+    INFO("wokePeak = " << wokePeak);
+    REQUIRE(wokePeak > 0.05f);
 }
