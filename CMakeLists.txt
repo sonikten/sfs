@@ -183,6 +183,7 @@ endif()
 if (SFS_BUILD_TOOLS AND SFS_BUILD_PLUGIN)
     add_subdirectory(tools/sfs_render)
     add_subdirectory(tools/wav_diff)
+    add_subdirectory(tools/list_params)
 endif()
 
 # CPU profile micro-benchmark — JUCE-free, only depends on the engine.
