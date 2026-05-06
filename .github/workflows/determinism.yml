@@ -60,18 +60,38 @@ jobs:
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSFS_BUILD_PLUGIN=ON -DSFS_BUILD_TOOLS=ON -DSFS_BUILD_TESTS=OFF
 
-      - name: Build sfs_render
-        run: cmake --build build --target sfs_render --config Release --parallel
+      - name: Build sfs_render + sfs_render_presets
+        run: cmake --build build --target sfs_render sfs_render_presets --config Release --parallel
 
       - name: Render canonical reference clip
         shell: bash
         run: tools/render_reference.sh build/ref_renders
 
-      - name: Hash raw PCM frames (determinism contract surface)
+      - name: Render all preset WAVs (default/drone/pitched/organic/glitch + 6 extreme)
+        shell: bash
+        run: |
+          mkdir -p build/preset_renders
+          # Locate the binary (Release suffix on Windows).
+          for cand in \
+              build/bin/sfs_render_presets \
+              build/bin/Release/sfs_render_presets \
+              build/bin/sfs_render_presets.exe \
+              build/bin/Release/sfs_render_presets.exe; do
+              if [ -x "$cand" ]; then
+                  "$cand" build/preset_renders
+                  break
+              fi
+          done
+
+      - name: Hash canonical PCM frames (determinism contract surface)
         shell: bash
         run: tools/hash_pcm.sh build/ref_renders/*.raw | tee build/ref_renders/hashes.txt
 
-      - name: Upload artifact
+      - name: Hash preset PCM frames (extended cross-platform check)
+        shell: bash
+        run: tools/hash_pcm.sh build/preset_renders/*.raw | tee build/preset_renders/hashes.txt
+
+      - name: Upload canonical artifact
         uses: actions/upload-artifact@v7
         with:
           name: render-${{ matrix.slug }}
@@ -79,6 +99,17 @@ jobs:
             build/ref_renders/*.raw
             build/ref_renders/*.wav
             build/ref_renders/hashes.txt
+          retention-days: 14
+
+      - name: Upload preset artifact (auditionable CI builds)
+        uses: actions/upload-artifact@v7
+        with:
+          name: presets-${{ matrix.slug }}
+          path: |
+            build/preset_renders/*.wav
+            build/preset_renders/*.raw
+            build/preset_renders/hashes.txt
+            build/preset_renders/report.txt
           retention-days: 14
 
   compare:
@@ -143,3 +174,40 @@ jobs:
 
           echo
           echo "All ${#wav_names[@]} reference clip(s) hash-match across all 3 platforms."
+
+          # Extended cross-platform check: 11 preset PCM hashes.
+          echo
+          echo "=== Preset render cross-platform hashes ==="
+          mapfile -t preset_platforms < <(ls -d artifacts/presets-*/ | sort)
+          if [ "${#preset_platforms[@]}" -ne 3 ]; then
+              echo "ERROR: expected 3 preset platform artifacts, got ${#preset_platforms[@]}." >&2
+              exit 1
+          fi
+          mapfile -t preset_names < <(awk '{print $2}' "${preset_platforms[0]}hashes.txt" | xargs -n1 basename | sort -u)
+          preset_fail=0
+          for w in "${preset_names[@]}"; do
+              echo
+              echo "=== ${w} ==="
+              hashes=()
+              for p in "${preset_platforms[@]}"; do
+                  h=$(grep " .*${w}\$" "${p}hashes.txt" | awk '{print $1}')
+                  plat=$(basename "${p%/}")
+                  echo "  ${plat}: ${h}"
+                  hashes+=("${h}")
+              done
+              uniq=$(printf "%s\n" "${hashes[@]}" | sort -u | wc -l | tr -d ' ')
+              if [ "${uniq}" = "1" ]; then
+                  echo "  → MATCH"
+              else
+                  echo "  → DRIFT"
+                  preset_fail=1
+              fi
+          done
+
+          if [ "$preset_fail" = "1" ]; then
+              echo
+              echo "Preset cross-platform hash drift. Inspect presets-* artifacts to bisect."
+              exit 1
+          fi
+          echo
+          echo "All ${#preset_names[@]} preset clip(s) hash-match across all 3 platforms."
