@@ -27,7 +27,7 @@ constexpr float kPi = 3.14159265358979323846f;
 TEST_CASE("dm_cos matches std::cos within Phase 2 budget on principal range", "[dsp][dm_cos]")
 {
     constexpr int kSamples = 1024;
-    constexpr float kBudget = 3e-6f; // dm_cos = dm_sin(x + π/2); same float32 budget
+    constexpr float kBudget = 3e-6f; // dm_cos = dm_sin(x + π/2); float32 kPi-rounding budget
     float maxError = 0.0f;
     for (int i = 0; i <= kSamples; ++i)
     {

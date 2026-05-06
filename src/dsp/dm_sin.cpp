@@ -1,15 +1,21 @@
 // src/dsp/dm_sin.cpp
 //
-// Phase 0 implementation of the deterministic sine. See dm_sin.h for contract.
+// Phase 2 implementation of the deterministic sine. See dm_sin.h for contract.
 //
 // Algorithm:
 //   1. Range-reduce x to r ∈ [-π, π] via r = x − 2π·round(x / 2π).
 //   2. Fold to the principal half-range [-π/2, π/2] using sin(π − r) = sin(r)
 //      and sin(−π − r) = sin(r).
-//   3. Apply a 7th-order odd polynomial (Hastings 1955). Worst-case absolute
-//      error in float32 arithmetic is ~2e-6 on [-π/2, π/2]. Phase 1 will
-//      replace the Hastings coefficients with float-tuned minimax (Remez)
-//      coefficients to hit the spec's 1e-6 budget.
+//   3. Apply a 7th-order odd polynomial (Hastings 1955). Worst-case
+//      absolute error in float32 ≈ 2e-6 on [-π/2, π/2]; the larger 3.6e-6
+//      ceiling on [-π, π] comes from kPi being a rounded float32 in step
+//      2's fold, NOT from the polynomial.
+//
+// Spec budget is 1e-6 (sfs-spec/06 §1.3). Reaching it needs Cody-Waite
+// range reduction (multi-chunk π subtraction) — Phase 3 task because
+// it's a structural rework. Higher-order Taylor polynomials don't help:
+// the polynomial truncation in this scheme is already <<1e-6, the
+// bottleneck is the kPi fold.
 //
 // Determinism notes:
 //   * All arithmetic is IEEE 754 single precision.
