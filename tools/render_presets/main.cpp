@@ -208,6 +208,7 @@ int main(int argc, char** argv)
     report +=
         "------    ------  ------  --------  --------  ------  --------  --------  ----------------------------\n";
 
+    int failures = 0;
     for (const auto& preset : kPresets)
     {
         // Render through VoiceManager so the harness reflects the full
@@ -283,6 +284,28 @@ int main(int argc, char** argv)
 
         Stats s = analyse(interleaved, kSampleRate, substratePeak, substrateMean);
 
+        // Health checks — any preset that violates these is a regression
+        // worth flagging from CI. Velocity > 0 must produce sound; peaks
+        // must stay under the bus soft-clip limit; no NaN; substrate
+        // bounded by its runaway clamp.
+        const bool nan = !std::isfinite(s.peak) || !std::isfinite(s.rms) || !std::isfinite(s.substratePeak);
+        const bool peakBad = s.peak > 1.5f;
+        const bool subBad = s.substratePeak > 20.5f;
+        const bool dcBad = std::fabs(s.meanL) > 0.10 || std::fabs(s.meanR) > 0.10;
+        const bool silentNoteOn = (preset.velocity > 0.05f) && (s.rms < 0.001f);
+        if (nan || peakBad || subBad || dcBad || silentNoteOn)
+        {
+            ++failures;
+            std::fprintf(stderr,
+                         "[FAIL] %s: nan=%d peak=%d sub=%d dc=%d silent=%d\n",
+                         preset.name,
+                         nan ? 1 : 0,
+                         peakBad ? 1 : 0,
+                         subBad ? 1 : 0,
+                         dcBad ? 1 : 0,
+                         silentNoteOn ? 1 : 0);
+        }
+
         // Files.
         writeWav(outDir.getChildFile(juce::String(preset.name) + ".wav"), interleaved, kSampleRate, 2);
         writeRaw(outDir.getChildFile(juce::String(preset.name) + ".raw"), interleaved);
@@ -317,5 +340,5 @@ int main(int argc, char** argv)
     juce::File reportFile = outDir.getChildFile("report.txt");
     reportFile.replaceWithText(report);
     std::printf("\nReport: %s\n", reportFile.getFullPathName().toRawUTF8());
-    return 0;
+    return failures;
 }
