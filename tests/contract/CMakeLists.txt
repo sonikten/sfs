@@ -23,7 +23,11 @@ endfunction()
 
 sfs_add_contract_target (sfs_contract_drone   drone_test.cpp)
 sfs_add_contract_target (sfs_contract_pitched pitched_test.cpp)
+sfs_add_contract_target (sfs_contract_organic organic_test.cpp)
+sfs_add_contract_target (sfs_contract_glitch  glitch_test.cpp)
 
-# Phase 1 plan §3 contract gate matrix:
-#   organic    SKIP marker (Phase < 2)
-#   glitch     SKIP marker (Phase < 2)
+# Phase 2 plan §3 contract gate matrix:
+#   drone      ENABLED (Phase 2 form, 5s window, cv < 0.05)
+#   pitched    ENABLED (chromatic C2-C7, ±3% YIN tolerance)
+#   organic    ENABLED (Phase 2 form, 6s render, centroid stddev > 50 Hz)
+#   glitch     ENABLED (Phase 2 form, 5s window, ≥5 onsets)
