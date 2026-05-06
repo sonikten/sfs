@@ -289,7 +289,7 @@ void VoiceManager::renderBlockStereo(float* outL, float* outR, int numSamples) n
     // never produce hard fold-back). Future Phase 4 output stage replaces
     // this with the spec's full sfs-spec/04 §4 chain (master gain + dm_tanh
     // + DC block + optional limiter).
-    auto busSoftClip = [](float x) noexcept { return x / (1.0f + std::fabs(x)); };
+    auto busSoftClip = [](float v) noexcept { return v / (1.0f + std::fabs(v)); };
     for (int i = 0; i < numSamples; ++i)
     {
         outL[i] = busSoftClip(outL[i]);
