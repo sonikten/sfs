@@ -76,6 +76,13 @@ public:
     void setHarvesterPosition(float position) noexcept { harvesterPosition_ = position; }
     [[nodiscard]] float harvesterPosition() const noexcept { return harvesterPosition_; }
 
+    // GUI snapshot: copies the current substrate state into the user-supplied
+    // buffer (lock-free). Runs from the GUI/Timer thread; reads atomic-stable
+    // values that the audio thread writes at end-of-block. The substrate
+    // module is single-writer so a non-atomic copy is acceptable: tearing
+    // produces only a half-block visual artifact, never a use-after-free.
+    void snapshotSubstrate(float* dst, int dstSize) const noexcept;
+
     // Phase 2 single-shape selection: every agent uses the same waveform.
     // Phase 3 will replace with per-agent shape from agent.shape_distribution
     // (sfs-spec/09 §3.3). Set by the plug-in shell from a host parameter.

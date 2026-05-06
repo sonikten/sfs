@@ -137,6 +137,49 @@ void VoiceManager::setModMatrixSlotDepth(int slotIndex, float depth) noexcept
     }
 }
 
+bool VoiceManager::snapshotPrimaryVoiceSubstrate(float* dst, int dstSize) const noexcept
+{
+    if (dst == nullptr || dstSize <= 0)
+    {
+        return false;
+    }
+    // Pick the youngest active voice (latest noteOn) for the visualiser —
+    // this is what the user just hit and is the most useful "what is the
+    // engine doing right now" view. Falls back to the latest released
+    // voice if nothing is gated.
+    int best = -1;
+    std::uint64_t bestAge = 0;
+    int bestRelnGd = -1;
+    std::uint64_t bestRelAge = 0;
+    for (int i = 0; i < kMaxVoices; ++i)
+    {
+        const auto& s = slots_[static_cast<std::size_t>(i)];
+        if (s.voice.isGated())
+        {
+            if (best < 0 || s.ageCounter > bestAge)
+            {
+                best = i;
+                bestAge = s.ageCounter;
+            }
+        }
+        else if (s.midiNote >= 0)
+        {
+            if (bestRelnGd < 0 || s.ageCounter > bestRelAge)
+            {
+                bestRelnGd = i;
+                bestRelAge = s.ageCounter;
+            }
+        }
+    }
+    const int chosen = (best >= 0) ? best : bestRelnGd;
+    if (chosen < 0)
+    {
+        return false;
+    }
+    slots_[static_cast<std::size_t>(chosen)].voice.snapshotSubstrate(dst, dstSize);
+    return true;
+}
+
 int VoiceManager::activeVoiceCount() const noexcept
 {
     int n = 0;

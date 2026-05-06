@@ -37,9 +37,12 @@ public:
 
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
 
-    // ----- Editor (none in Phase 1; arrives at Phase 4) -------------------
-    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
-    bool hasEditor() const override { return false; }
+    // ----- Editor (Phase 2 — substrate visualiser + auto-knob panel) ------
+    juce::AudioProcessorEditor* createEditor() override;
+    bool hasEditor() const override { return true; }
+
+    // GUI accessor — read-only handle to the engine for the visualiser.
+    [[nodiscard]] sfs::engine::VoiceManager* voiceManager() noexcept { return voiceManager_.get(); }
 
     // ----- Identity -------------------------------------------------------
     const juce::String getName() const override { return "SFS (Phase 2)"; }

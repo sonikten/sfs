@@ -115,6 +115,15 @@ void Voice::applyMacroFanOut(const sfs::engine::macros::InternalFields& fields) 
     }
 }
 
+void Voice::snapshotSubstrate(float* dst, int dstSize) const noexcept
+{
+    if (dst == nullptr || dstSize <= 0)
+    {
+        return;
+    }
+    substrate_.snapshot(dst, static_cast<std::size_t>(dstSize));
+}
+
 Voice::Voice(int substrateCells, int agentCount, float sampleRate)
     : substrate_(substrateCells, sampleRate), agents_(agentCount), sampleRate_(sampleRate)
 {

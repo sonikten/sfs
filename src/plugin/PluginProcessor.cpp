@@ -5,8 +5,15 @@
 
 #include "PluginProcessor.h"
 
+#include "PluginEditor.h"
+
 namespace sfs::plugin
 {
+
+juce::AudioProcessorEditor* SfsAudioProcessor::createEditor()
+{
+    return new SfsEditor(*this);
+}
 
 SfsAudioProcessor::SfsAudioProcessor()
     : juce::AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))

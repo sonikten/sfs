@@ -65,6 +65,12 @@ public:
     void setLfoConfig(int lfoIndex, float rateHz, sfs::engine::lfo::LfoShape shape) noexcept;
     void setModMatrixSlotDepth(int slotIndex, float depth) noexcept;
 
+    // GUI snapshot: copies the most-recently-active voice's substrate state
+    // into dst. Returns true if a voice was active enough to copy from;
+    // returns false when every slot is idle (caller should clear the
+    // visualisation buffer). Lock-free; safe to call from a Timer thread.
+    bool snapshotPrimaryVoiceSubstrate(float* dst, int dstSize) const noexcept;
+
     // Inspection.
     [[nodiscard]] int activeVoiceCount() const noexcept;
 

@@ -17,6 +17,7 @@
 # ----------------------------------------------------------------------------
 add_library (sfs_plugin_core STATIC
     PluginProcessor.cpp
+    PluginEditor.cpp
 )
 
 add_library (SFS::PluginCore ALIAS sfs_plugin_core)
@@ -32,6 +33,8 @@ target_link_libraries (sfs_plugin_core
         SFS::DeterminismFlags
         juce::juce_audio_processors
         juce::juce_audio_utils
+        juce::juce_gui_basics
+        juce::juce_graphics
 )
 
 # Suppress JUCE's default splash + curl + browser to keep the build slim and
