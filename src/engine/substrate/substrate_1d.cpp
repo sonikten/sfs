@@ -51,14 +51,9 @@ void Substrate1D::reset() noexcept
 
 void Substrate1D::setCoefficients(float c2, float kappa, float gamma) noexcept
 {
-    if (c2 < 0.0f)
-        c2 = 0.0f;
-    if (kappa < 0.0f)
-        kappa = 0.0f;
-    if (gamma < 0.0f)
-        gamma = 0.0f;
-    if (gamma > 0.99f)
-        gamma = 0.99f;
+    c2 = std::max(c2, 0.0f);
+    kappa = std::max(kappa, 0.0f);
+    gamma = std::clamp(gamma, 0.0f, 0.99f);
 
     // Joint CFL clamp (sfs-spec/02 §2.2): if c² + κ > kCflBound1D, scale both
     // proportionally. The macro layer (Phase 2) will enforce this softly via

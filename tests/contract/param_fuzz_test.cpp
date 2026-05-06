@@ -142,10 +142,7 @@ RenderResult runConfig(const Config& cfg)
                 r.anyNonFinite = true;
             }
             const float a = std::max(std::fabs(l), std::fabs(rs));
-            if (a > r.audioPeak)
-            {
-                r.audioPeak = a;
-            }
+            r.audioPeak = std::max(r.audioPeak, a);
             sumSq += static_cast<double>(l) * static_cast<double>(l) +
                      static_cast<double>(rs) * static_cast<double>(rs);
             sumLin += static_cast<double>(l) + static_cast<double>(rs);
@@ -160,11 +157,7 @@ RenderResult runConfig(const Config& cfg)
             {
                 r.anyNonFinite = true;
             }
-            const float a = std::fabs(v);
-            if (a > r.substrateMaxAbs)
-            {
-                r.substrateMaxAbs = a;
-            }
+            r.substrateMaxAbs = std::max(r.substrateMaxAbs, std::fabs(v));
         }
 
         written += n;
@@ -193,14 +186,18 @@ void assertHealthy(const Config& cfg, const RenderResult& r)
 
 TEST_CASE("Param fuzz: macro boundary corners (2^6 = 64 combos)", "[contract][fuzz][macros]")
 {
-    int fails = 0;
     int silent = 0;
     std::vector<float> levels = {0.0f, 1.0f};
     for (float t : levels)
+    {
         for (float d : levels)
+        {
             for (float den : levels)
+            {
                 for (float mig : levels)
+                {
                     for (float coh : levels)
+                    {
                         for (float exc : levels)
                         {
                             Config c;
@@ -222,8 +219,12 @@ TEST_CASE("Param fuzz: macro boundary corners (2^6 = 64 combos)", "[contract][fu
                             {
                                 ++silent;
                             }
-                            (void)fails;
                         }
+                    }
+                }
+            }
+        }
+    }
     std::printf("\n[macro corners] 64 configs run; %d effectively silent (RMS < 1e-4)\n", silent);
 }
 
@@ -281,10 +282,7 @@ TEST_CASE("Param fuzz: all 5 agent shapes × note range", "[contract][fuzz][shap
                         r.anyNonFinite = true;
                     }
                     const float a = std::max(std::fabs(l), std::fabs(rs));
-                    if (a > r.audioPeak)
-                    {
-                        r.audioPeak = a;
-                    }
+                    r.audioPeak = std::max(r.audioPeak, a);
                     sumSq += static_cast<double>(l) * static_cast<double>(l) +
                              static_cast<double>(rs) * static_cast<double>(rs);
                     ++pairs;
@@ -296,11 +294,7 @@ TEST_CASE("Param fuzz: all 5 agent shapes × note range", "[contract][fuzz][shap
                     {
                         r.anyNonFinite = true;
                     }
-                    const float a = std::fabs(v);
-                    if (a > r.substrateMaxAbs)
-                    {
-                        r.substrateMaxAbs = a;
-                    }
+                    r.substrateMaxAbs = std::max(r.substrateMaxAbs, std::fabs(v));
                 }
                 written += n;
             }

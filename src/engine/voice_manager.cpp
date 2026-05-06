@@ -19,13 +19,13 @@ VoiceManager::VoiceManager(int substrateCells, int agentCount, float sampleRate)
           VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
           VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
       },
+      // smoothedMacros_ uses the same default field values as macroTargets_
+      // (both default-initialise to MacroValues{}), so the first render
+      // block won't have to ramp from zero.
       sampleRate_(sampleRate),
       scratchL_(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
       scratchR_(static_cast<std::size_t>(kMaxBlockSize), 0.0f)
 {
-    // Smoothed macros start at the same defaults as the targets so the
-    // first render block doesn't have to ramp from zero.
-    smoothedMacros_ = macroTargets_;
 }
 
 int VoiceManager::findFreeVoice() const noexcept

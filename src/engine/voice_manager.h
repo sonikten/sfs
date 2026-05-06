@@ -89,11 +89,11 @@ private:
 
     // Find the index of a free voice (midiNote == -1 and not gated). Returns
     // -1 if none free.
-    int findFreeVoice() const noexcept;
+    [[nodiscard]] int findFreeVoice() const noexcept;
 
     // Find the index of the best voice to steal: oldest non-gated first;
     // if all are gated, oldest overall. Always returns a valid index.
-    int findStealVictim() const noexcept;
+    [[nodiscard]] int findStealVictim() const noexcept;
 
     std::array<VoiceSlot, kMaxVoices> slots_;
     // Macro layer: targets come from the host (PluginProcessor::processBlock

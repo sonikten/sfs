@@ -74,8 +74,10 @@ TEST_CASE("Chord render: 3 notes produce non-silent bounded stereo", "[voice_man
     }
 
     // Non-silent.
-    float peakL = 0, peakR = 0;
-    double rmsL = 0, rmsR = 0;
+    float peakL = 0.0f;
+    float peakR = 0.0f;
+    double rmsL = 0.0;
+    double rmsR = 0.0;
     for (int i = 0; i < kSamples; ++i)
     {
         const float lv = L[static_cast<std::size_t>(i)];

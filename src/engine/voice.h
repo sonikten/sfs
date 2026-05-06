@@ -98,7 +98,8 @@ public:
 
 private:
     void applyMacroFanOut(const sfs::engine::macros::InternalFields& fields) noexcept;
-    sfs::engine::macros::MacroValues applyModMatrix(const sfs::engine::macros::MacroValues& base) const noexcept;
+    [[nodiscard]] sfs::engine::macros::MacroValues
+    applyModMatrix(const sfs::engine::macros::MacroValues& base) const noexcept;
 
     substrate::Substrate1D substrate_;
     agents::AgentPool agents_;
