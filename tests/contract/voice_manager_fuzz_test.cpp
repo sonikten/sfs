@@ -316,6 +316,76 @@ TEST_CASE("VoiceManager fuzz: CC1 mod wheel sweep mid-render", "[contract][fuzz]
     assertHealth("cc1_sweep", h);
 }
 
+TEST_CASE("VoiceManager fuzz: deterministic — same MIDI sequence → identical PCM", "[contract][fuzz][determinism]")
+{
+    constexpr int kSampleRate = 48000;
+    constexpr int kBlockSize = 256;
+
+    auto runOnce = [&]()
+    {
+        VoiceManager vm(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
+        vm.macros().tension = 0.4f;
+        vm.macros().damping = 0.3f;
+        vm.macros().density = 0.7f;
+        vm.macros().migration = 0.5f;
+        vm.macros().coherence = 0.6f;
+        vm.macros().excitation = 0.5f;
+
+        std::vector<float> bufL(static_cast<std::size_t>(kBlockSize), 0.0f);
+        std::vector<float> bufR(static_cast<std::size_t>(kBlockSize), 0.0f);
+        std::vector<float> out;
+        out.reserve(static_cast<std::size_t>(kSampleRate * 2));
+
+        // 1 s render with a small MIDI sequence.
+        constexpr int kSeqBlocks = 192; // 1 s
+        for (int b = 0; b < kSeqBlocks; ++b)
+        {
+            if (b == 0)
+            {
+                vm.noteOn(60, 0.8f);
+                vm.noteOn(64, 0.8f);
+                vm.noteOn(67, 0.8f);
+            }
+            if (b == 96)
+            {
+                vm.noteOff(64);
+            }
+            if (b == 120)
+            {
+                vm.setMidiCc1(0.7f);
+            }
+            vm.renderBlockStereo(bufL.data(), bufR.data(), kBlockSize);
+            for (int i = 0; i < kBlockSize; ++i)
+            {
+                const std::size_t idx = static_cast<std::size_t>(i);
+                out.push_back(bufL[idx]);
+                out.push_back(bufR[idx]);
+            }
+        }
+        return out;
+    };
+
+    const auto a = runOnce();
+    const auto b = runOnce();
+    REQUIRE(a.size() == b.size());
+    // Bit-exact equality across two independent VoiceManager instances
+    // running the same MIDI sequence. This is the engine-level determinism
+    // contract (same input → same output) inside a single process.
+    bool identical = true;
+    int firstDiff = -1;
+    for (std::size_t i = 0; i < a.size(); ++i)
+    {
+        if (a[i] != b[i])
+        {
+            identical = false;
+            firstDiff = static_cast<int>(i);
+            break;
+        }
+    }
+    INFO("first-diff sample index = " << firstDiff);
+    REQUIRE(identical);
+}
+
 TEST_CASE("VoiceManager fuzz: macro smoothing converges toward target", "[contract][fuzz][smoothing]")
 {
     constexpr int kSampleRate = 48000;
