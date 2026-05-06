@@ -60,9 +60,9 @@ public:
     const juce::String getProgramName(int) override { return {}; }
     void changeProgramName(int, const juce::String&) override {}
 
-    // ----- State (no-op until preset format lands at P4) ------------------
-    void getStateInformation(juce::MemoryBlock&) override {}
-    void setStateInformation(const void*, int) override {}
+    // ----- State (raw-parameter serialisation; full preset format at P4) --
+    void getStateInformation(juce::MemoryBlock& dest) override;
+    void setStateInformation(const void* data, int sizeInBytes) override;
 
 private:
     static constexpr int kSubstrateCells = 1024;

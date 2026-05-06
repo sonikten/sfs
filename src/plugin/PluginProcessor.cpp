@@ -15,6 +15,62 @@ juce::AudioProcessorEditor* SfsAudioProcessor::createEditor()
     return new SfsEditor(*this);
 }
 
+namespace
+{
+
+// Stable header bytes so future loaders can detect / version the blob.
+// 'S','F','S','2' = magic + Phase 2 schema. Phase 4 preset format ('S','F','S','4')
+// will gain dedicated handling alongside the JSON preset.
+constexpr juce::uint32 kStateMagic = 0x53465332; // 'SFS2'
+constexpr juce::uint32 kStateVersion = 1;
+
+} // namespace
+
+void SfsAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
+{
+    juce::MemoryOutputStream stream(dest, true);
+    stream.writeInt(static_cast<juce::int32>(kStateMagic));
+    stream.writeInt(static_cast<juce::int32>(kStateVersion));
+
+    const auto& params = getParameters();
+    stream.writeInt(params.size());
+    for (auto* p : params)
+    {
+        // We persist the normalised value [0, 1] so the blob is stable
+        // under future range / skew tweaks — setValueNotifyingHost takes
+        // a normalised value too.
+        stream.writeFloat(p->getValue());
+    }
+}
+
+void SfsAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
+{
+    if (data == nullptr || sizeInBytes < 12)
+    {
+        return;
+    }
+    juce::MemoryInputStream stream(data, static_cast<std::size_t>(sizeInBytes), false);
+    const auto magic = static_cast<juce::uint32>(stream.readInt());
+    const auto version = static_cast<juce::uint32>(stream.readInt());
+    if (magic != kStateMagic || version != kStateVersion)
+    {
+        // Unknown blob — leave parameters at their current values.
+        return;
+    }
+    const auto count = stream.readInt();
+    const auto& params = getParameters();
+    const auto loadN = juce::jmin(count, params.size());
+    for (int i = 0; i < loadN; ++i)
+    {
+        if (stream.getNumBytesRemaining() < 4)
+        {
+            break;
+        }
+        const float normalised = stream.readFloat();
+        params[i]->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, normalised));
+    }
+}
+
 SfsAudioProcessor::SfsAudioProcessor()
     : juce::AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
