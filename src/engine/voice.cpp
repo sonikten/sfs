@@ -85,7 +85,13 @@ sfs::engine::macros::MacroValues Voice::applyModMatrix(const sfs::engine::macros
 // Plus the SHAPE selector (not a macro, but applied here for symmetry).
 void Voice::applyMacroFanOut(const sfs::engine::macros::InternalFields& fields) noexcept
 {
-    substrate_.setCoefficients(fields.substrateC2, substrateKappa_, fields.substrateGamma);
+    // Substrate κ from the spec's viscosity fan-out (sfs-spec/05 §3.1 +
+    // §3.6): κ = clamp(viscosityFloor + viscosityOffset, 0, κ_max). The
+    // CFL bound c² + κ ≤ 0.475 (1D) caps the upper edge to keep the
+    // leapfrog stable at the engine-clamp limit.
+    constexpr float kKappaMax = 0.225f; // 1D CFL slack at c²≤0.25
+    const float kappa = std::clamp(fields.substrateViscosityFloor + fields.substrateViscosityOffset, 0.0f, kKappaMax);
+    substrate_.setCoefficients(fields.substrateC2, kappa, fields.substrateGamma);
 
     // DENSITY: live resize the active subset BEFORE we walk active agents.
     agents_.setActiveCount(fields.agentActiveCount);

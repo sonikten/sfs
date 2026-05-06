@@ -116,11 +116,10 @@ private:
     // with per-agent shape draws from the shape_distribution.
     sfs::engine::agents::AgentShape uniformShape_ = sfs::engine::agents::AgentShape::Sine;
 
-    // Substrate κ (velocity diffusion) is not macro-driven in Phase 2 (the
-    // spec leaves it to indirect control via DAMPING + EXCITATION but that
-    // pathway isn't fully fleshed). Phase 2 keeps κ at the Phase 1 default
-    // and revisits when DAMPING's full fan-out lands.
-    float substrateKappa_ = 0.05f;
+    // Substrate κ is now driven by TENSION (viscosityFloor) + EXCITATION
+    // (viscosityOffset) per sfs-spec/05 §3.1 + §3.6, with a CFL clamp
+    // applied in applyMacroFanOut. No persistent member needed — κ is
+    // recomputed each block.
 
     // DC blocker state for the harvester reads (sfs-spec/02 §6 — applied at
     // the output, not on the substrate state). First-order high-pass:

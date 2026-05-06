@@ -94,10 +94,10 @@ SfsAudioProcessor::SfsAudioProcessor()
         addParameter(p);
         return p;
     };
-    slot0DepthParam_ = addDepth("mod_cc1_migration", "CC1→MIGRATION", 0.5f);
-    slot1DepthParam_ = addDepth("mod_lfo1_tension", "LFO1→TENSION", 0.10f);
-    slot2DepthParam_ = addDepth("mod_lfo2_coherence", "LFO2→COHERENCE", -0.08f);
-    slot3DepthParam_ = addDepth("mod_vel_excitation", "VEL→EXCITATION", 0.30f);
+    slot0DepthParam_ = addDepth("mod_cc1_migration", "CC1>MIGRATION", 0.5f);
+    slot1DepthParam_ = addDepth("mod_lfo1_tension", "LFO1>TENSION", 0.10f);
+    slot2DepthParam_ = addDepth("mod_lfo2_coherence", "LFO2>COHERENCE", -0.08f);
+    slot3DepthParam_ = addDepth("mod_vel_excitation", "VEL>EXCITATION", 0.30f);
 }
 
 void SfsAudioProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
