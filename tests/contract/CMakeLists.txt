@@ -26,6 +26,7 @@ sfs_add_contract_target (sfs_contract_pitched    pitched_test.cpp)
 sfs_add_contract_target (sfs_contract_organic    organic_test.cpp)
 sfs_add_contract_target (sfs_contract_glitch     glitch_test.cpp)
 sfs_add_contract_target (sfs_contract_param_fuzz param_fuzz_test.cpp)
+sfs_add_contract_target (sfs_contract_vm_fuzz    voice_manager_fuzz_test.cpp)
 
 # Phase 2 plan §3 contract gate matrix:
 #   drone      ENABLED (Phase 2 form, 5s window, cv < 0.05)

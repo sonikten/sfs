@@ -19,11 +19,13 @@
 // ~10× real-time). Runs as a separate CTest entry so contract failures
 // here don't mask drone/pitched/organic/glitch failures.
 
+#include "engine/rng/philox.h"
 #include "engine/voice.h"
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -390,4 +392,79 @@ TEST_CASE("Param fuzz: max-velocity vs zero-velocity", "[contract][fuzz][velocit
     b.label = "vel_max";
     b.velocity = 1.0f;
     assertHealthy(b, runConfig(b));
+}
+
+namespace
+{
+
+// Deterministic Philox-seeded random config generator. Each iteration
+// gets a unique seed so failures are reproducible by index.
+Config randomConfig(int iteration)
+{
+    sfs::engine::rng::Philox4x32Stream s;
+    s.seed(0xC0FFEE'C0FFEEull,
+           static_cast<std::uint16_t>(iteration & 0xFFFF),
+           static_cast<std::uint16_t>((iteration >> 16) & 0xFFFF),
+           sfs::engine::rng::StreamId::PresetDiceButton);
+
+    auto u01 = [&]() { return s.nextFloat01(); };
+    auto lerp = [&](float lo, float hi) { return lo + (hi - lo) * u01(); };
+
+    Config c;
+    c.label = "rand_" + std::to_string(iteration);
+
+    c.tension = u01();
+    c.damping = u01();
+    c.density = u01();
+    c.migration = u01();
+    c.coherence = u01();
+    c.excitation = u01();
+
+    using sfs::engine::lfo::LfoShape;
+    constexpr LfoShape kShapes[5] = {
+        LfoShape::Sine,
+        LfoShape::Triangle,
+        LfoShape::Saw,
+        LfoShape::Square,
+        LfoShape::SampleHold,
+    };
+    for (int i = 0; i < 4; ++i)
+    {
+        const float skew = u01();
+        c.lfoRateHz[i] = 0.05f * std::exp(skew * std::log(20.0f / 0.05f));
+        c.lfoShape[i] = kShapes[static_cast<int>(u01() * 5.0f) % 5];
+        c.slotDepth[i] = u01() * 2.0f - 1.0f;
+    }
+
+    c.attackMs = lerp(0.0f, 5000.0f);
+    c.decayMs = lerp(0.0f, 5000.0f);
+    c.sustainLvl = u01();
+    c.releaseMs = lerp(0.0f, 10000.0f);
+
+    c.midiNote = 24 + static_cast<int>(u01() * 73.0f);
+    c.velocity = u01();
+
+    return c;
+}
+
+} // namespace
+
+TEST_CASE("Param fuzz: 200 random parameter combinations (Philox-seeded)", "[contract][fuzz][random]")
+{
+    constexpr int kIterations = 200;
+    int silentNoteOn = 0;
+    for (int i = 0; i < kIterations; ++i)
+    {
+        const Config c = randomConfig(i);
+        const RenderResult r = runConfig(c);
+        assertHealthy(c, r);
+        if (c.velocity > 0.05f && r.audioRms < 0.0001f)
+        {
+            ++silentNoteOn;
+        }
+    }
+    std::printf("\n[random fuzz] %d configs run; %d non-silent-velocity → silent (RMS < 1e-4)\n",
+                kIterations,
+                silentNoteOn);
+    REQUIRE(silentNoteOn < kIterations / 4);
 }

@@ -2,6 +2,7 @@
 
 #include "voice_manager.h"
 
+#include <cmath>
 #include <vector>
 
 namespace sfs::engine
@@ -250,6 +251,22 @@ void VoiceManager::renderBlockStereo(float* outL, float* outR, int numSamples) n
             // Mark as released; eligible for re-allocation on next noteOn.
             s.midiNote = -1;
         }
+    }
+
+    // Master bus soft-clip. Each Voice already soft-clips its own output
+    // near ±0.5, but summing N polyphonic voices stacks linearly — 8
+    // voices can push the bus up to ~4.0 before any limiting. Apply a
+    // second rational saturator at the bus so the master output stays
+    // within ±1.0 regardless of polyphony. Same x / (1 + |x|) form as
+    // Voice's per-voice clip; the cascade is gentle (two soft saturators
+    // never produce hard fold-back). Future Phase 4 output stage replaces
+    // this with the spec's full sfs-spec/04 §4 chain (master gain + dm_tanh
+    // + DC block + optional limiter).
+    auto busSoftClip = [](float x) noexcept { return x / (1.0f + std::fabs(x)); };
+    for (int i = 0; i < numSamples; ++i)
+    {
+        outL[i] = busSoftClip(outL[i]);
+        outR[i] = busSoftClip(outR[i]);
     }
 }
 
