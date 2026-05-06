@@ -57,6 +57,14 @@ public:
     void setMidiCc1(float v) noexcept { midiCc1_ = v; }
     [[nodiscard]] float midiCc1() const noexcept { return midiCc1_; }
 
+    // Phase 2 control-surface plumbing — every voice receives the same
+    // ADSR / LFO / mod-matrix-depth configuration. Called block-rate
+    // from PluginProcessor; the underlying state assignments are O(1)
+    // per voice so 8 voices × N params is well under the audio budget.
+    void setAdsr(float attackMs, float decayMs, float sustainLevel, float releaseMs) noexcept;
+    void setLfoConfig(int lfoIndex, float rateHz, sfs::engine::lfo::LfoShape shape) noexcept;
+    void setModMatrixSlotDepth(int slotIndex, float depth) noexcept;
+
     // Inspection.
     [[nodiscard]] int activeVoiceCount() const noexcept;
 

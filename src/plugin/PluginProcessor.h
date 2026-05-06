@@ -18,6 +18,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <array>
 #include <memory>
 
 namespace sfs::plugin
@@ -41,7 +42,7 @@ public:
     bool hasEditor() const override { return false; }
 
     // ----- Identity -------------------------------------------------------
-    const juce::String getName() const override { return "SFS (Phase 1)"; }
+    const juce::String getName() const override { return "SFS (Phase 2)"; }
 
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
@@ -81,6 +82,24 @@ private:
     juce::AudioParameterFloat* coherenceParam_ = nullptr;
     juce::AudioParameterFloat* excitationParam_ = nullptr;
     juce::AudioParameterChoice* shapeParam_ = nullptr; // Phase 2 uniform agent shape
+
+    // Amp ADSR.
+    juce::AudioParameterFloat* attackMsParam_ = nullptr;
+    juce::AudioParameterFloat* decayMsParam_ = nullptr;
+    juce::AudioParameterFloat* sustainLevelParam_ = nullptr;
+    juce::AudioParameterFloat* releaseMsParam_ = nullptr;
+
+    // 4 LFOs × {rate Hz, shape} (Phase 2 §9 step 9).
+    static constexpr int kLfoCount = 4;
+    std::array<juce::AudioParameterFloat*, kLfoCount> lfoRateParams_{};
+    std::array<juce::AudioParameterChoice*, kLfoCount> lfoShapeParams_{};
+
+    // Mod matrix depths for the 4 active default slots — exposed so the
+    // user can dial them in from the host before the preset format lands.
+    juce::AudioParameterFloat* slot0DepthParam_ = nullptr; // CC1 → MIGRATION
+    juce::AudioParameterFloat* slot1DepthParam_ = nullptr; // LFO1 → TENSION
+    juce::AudioParameterFloat* slot2DepthParam_ = nullptr; // LFO2 → COHERENCE
+    juce::AudioParameterFloat* slot3DepthParam_ = nullptr; // KeyVel → EXCITATION
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SfsAudioProcessor)
 };

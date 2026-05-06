@@ -97,6 +97,46 @@ void VoiceManager::allNotesOff()
     }
 }
 
+void VoiceManager::setAdsr(float attackMs, float decayMs, float sustainLevel, float releaseMs) noexcept
+{
+    for (auto& s : slots_)
+    {
+        auto& env = s.voice.ampEnv();
+        env.setAttackMs(attackMs);
+        env.setDecayMs(decayMs);
+        env.setSustainLevel(sustainLevel);
+        env.setReleaseMs(releaseMs);
+    }
+}
+
+void VoiceManager::setLfoConfig(int lfoIndex, float rateHz, sfs::engine::lfo::LfoShape shape) noexcept
+{
+    if (lfoIndex < 0 || lfoIndex >= Voice::kLfoCount)
+    {
+        return;
+    }
+    for (auto& s : slots_)
+    {
+        auto& l = s.voice.lfo(lfoIndex);
+        l.setRateHz(rateHz);
+        l.setShape(shape);
+    }
+}
+
+void VoiceManager::setModMatrixSlotDepth(int slotIndex, float depth) noexcept
+{
+    if (slotIndex < 0 || slotIndex >= sfs::engine::mod_matrix::ModMatrix::kNumSlots)
+    {
+        return;
+    }
+    for (auto& s : slots_)
+    {
+        auto& mm = s.voice.modMatrix();
+        const auto cur = mm.slot(slotIndex);
+        mm.setSlot(slotIndex, cur.source, cur.dest, depth);
+    }
+}
+
 int VoiceManager::activeVoiceCount() const noexcept
 {
     int n = 0;

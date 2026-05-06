@@ -37,6 +37,67 @@ SfsAudioProcessor::SfsAudioProcessor()
                                                  juce::StringArray{"Sine", "Saw", "Square", "FmPair", "Noise"},
                                                  0); // default Sine
     addParameter(shapeParam_);
+
+    // Amp ADSR (Phase 2 §9 step 9). Times are millis on a skewed range so
+    // the typical musical sweet spot (1-500 ms) gets dial resolution; range
+    // tops at 5/10 s for pad-style ramps. Defaults match Voice constructor.
+    auto addMs = [&](const char* id, const char* name, float minMs, float maxMs, float defaultMs)
+    {
+        juce::NormalisableRange<float> range(minMs, maxMs, 0.01f);
+        range.setSkewForCentre(juce::jmax(minMs, maxMs * 0.05f));
+        auto* p = new juce::AudioParameterFloat(juce::ParameterID(id, 1), juce::String(name), range, defaultMs);
+        addParameter(p);
+        return p;
+    };
+    attackMsParam_ = addMs("attack", "ATTACK", 0.0f, 5000.0f, 10.0f);
+    decayMsParam_ = addMs("decay", "DECAY", 0.0f, 5000.0f, 120.0f);
+    sustainLevelParam_ = add("sustain", "SUSTAIN", 0.75f);
+    releaseMsParam_ = addMs("release", "RELEASE", 0.0f, 10000.0f, 250.0f);
+
+    // Per-LFO controls. Rate is log-skewed so 0.5-5 Hz gets dial precision;
+    // top-end 20 Hz is plenty for tremolo. Shape mirrors LfoShape enum.
+    constexpr float kLfoDefaultRates[kLfoCount] = {0.5f, 2.0f, 5.0f, 7.0f};
+    constexpr int kLfoDefaultShapeIdx[kLfoCount] = {
+        static_cast<int>(sfs::engine::lfo::LfoShape::Sine),
+        static_cast<int>(sfs::engine::lfo::LfoShape::Triangle),
+        static_cast<int>(sfs::engine::lfo::LfoShape::Sine),
+        static_cast<int>(sfs::engine::lfo::LfoShape::SampleHold),
+    };
+    for (int i = 0; i < kLfoCount; ++i)
+    {
+        const juce::String idRate = "lfo" + juce::String(i + 1) + "_rate";
+        const juce::String idShape = "lfo" + juce::String(i + 1) + "_shape";
+        const juce::String nmRate = "LFO" + juce::String(i + 1) + " RATE";
+        const juce::String nmShape = "LFO" + juce::String(i + 1) + " SHAPE";
+
+        juce::NormalisableRange<float> rateRange(0.05f, 20.0f, 0.001f);
+        rateRange.setSkewForCentre(2.0f);
+        auto* rateP =
+            new juce::AudioParameterFloat(juce::ParameterID(idRate, 1), nmRate, rateRange, kLfoDefaultRates[i]);
+        addParameter(rateP);
+        lfoRateParams_[static_cast<std::size_t>(i)] = rateP;
+
+        auto* shapeP = new juce::AudioParameterChoice(juce::ParameterID(idShape, 1),
+                                                      nmShape,
+                                                      juce::StringArray{"Sine", "Triangle", "Saw", "Square", "S&H"},
+                                                      kLfoDefaultShapeIdx[i]);
+        addParameter(shapeP);
+        lfoShapeParams_[static_cast<std::size_t>(i)] = shapeP;
+    }
+
+    // Mod matrix slot depths (4 active default slots). Range -1..1; the
+    // remaining 12 slots are inactive at start and not exposed.
+    auto addDepth = [&](const char* id, const char* name, float defaultValue)
+    {
+        juce::NormalisableRange<float> range(-1.0f, 1.0f, 0.001f);
+        auto* p = new juce::AudioParameterFloat(juce::ParameterID(id, 1), juce::String(name), range, defaultValue);
+        addParameter(p);
+        return p;
+    };
+    slot0DepthParam_ = addDepth("mod_cc1_migration", "CC1→MIGRATION", 0.5f);
+    slot1DepthParam_ = addDepth("mod_lfo1_tension", "LFO1→TENSION", 0.10f);
+    slot2DepthParam_ = addDepth("mod_lfo2_coherence", "LFO2→COHERENCE", -0.08f);
+    slot3DepthParam_ = addDepth("mod_vel_excitation", "VEL→EXCITATION", 0.30f);
 }
 
 void SfsAudioProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
@@ -88,6 +149,27 @@ void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     macros.migration = migrationParam_->get();
     macros.coherence = coherenceParam_->get();
     macros.excitation = excitationParam_->get();
+
+    // Read the SHAPE selector and push to all voices.
+    voiceManager_->setUniformShape(static_cast<sfs::engine::agents::AgentShape>(shapeParam_->getIndex()));
+
+    // ADSR + LFO + mod-matrix slot depths fan out to every voice. The
+    // calls are O(voiceCount) and well under budget.
+    voiceManager_->setAdsr(attackMsParam_->get(),
+                           decayMsParam_->get(),
+                           sustainLevelParam_->get(),
+                           releaseMsParam_->get());
+    for (int i = 0; i < kLfoCount; ++i)
+    {
+        voiceManager_->setLfoConfig(i,
+                                    lfoRateParams_[static_cast<std::size_t>(i)]->get(),
+                                    static_cast<sfs::engine::lfo::LfoShape>(
+                                        lfoShapeParams_[static_cast<std::size_t>(i)]->getIndex()));
+    }
+    voiceManager_->setModMatrixSlotDepth(0, slot0DepthParam_->get());
+    voiceManager_->setModMatrixSlotDepth(1, slot1DepthParam_->get());
+    voiceManager_->setModMatrixSlotDepth(2, slot2DepthParam_->get());
+    voiceManager_->setModMatrixSlotDepth(3, slot3DepthParam_->get());
 
     // MIDI dispatch — VoiceManager handles allocation + stealing.
     // Phase 2 simplification: events apply at block boundaries (5 ms
