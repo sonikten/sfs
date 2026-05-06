@@ -316,6 +316,53 @@ TEST_CASE("VoiceManager fuzz: CC1 mod wheel sweep mid-render", "[contract][fuzz]
     assertHealth("cc1_sweep", h);
 }
 
+TEST_CASE("VoiceManager fuzz: macro smoothing converges toward target", "[contract][fuzz][smoothing]")
+{
+    constexpr int kSampleRate = 48000;
+    constexpr int kBlockSize = 256;
+    VoiceManager vm(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
+
+    // Set initial target to 0.0 across the board so smoothed values
+    // settle near 0 first.
+    vm.macros().tension = 0.0f;
+    vm.macros().damping = 0.0f;
+    vm.macros().density = 0.0f;
+    vm.macros().migration = 0.0f;
+    vm.macros().coherence = 0.0f;
+    vm.macros().excitation = 0.0f;
+
+    std::vector<float> bufL(static_cast<std::size_t>(kBlockSize), 0.0f);
+    std::vector<float> bufR(static_cast<std::size_t>(kBlockSize), 0.0f);
+    // Run 100 blocks (~0.5 s) so smoothed converges to 0.
+    for (int b = 0; b < 100; ++b)
+    {
+        vm.renderBlockStereo(bufL.data(), bufR.data(), kBlockSize);
+    }
+    REQUIRE(vm.smoothedMacros().tension < 0.01f);
+
+    // Now slam the target to 1.0 and verify smoothed lags but converges.
+    vm.macros().tension = 1.0f;
+    vm.macros().damping = 1.0f;
+    vm.macros().density = 1.0f;
+    vm.macros().migration = 1.0f;
+    vm.macros().coherence = 1.0f;
+    vm.macros().excitation = 1.0f;
+
+    // After ONE block, smoothed should NOT have jumped to 1.0 —
+    // the whole point is that automation is gradual.
+    vm.renderBlockStereo(bufL.data(), bufR.data(), kBlockSize);
+    REQUIRE(vm.smoothedMacros().tension < 0.5f);
+    REQUIRE(vm.smoothedMacros().tension > 0.05f);
+
+    // After many blocks (~1 s) it should converge.
+    for (int b = 0; b < 200; ++b)
+    {
+        vm.renderBlockStereo(bufL.data(), bufR.data(), kBlockSize);
+    }
+    REQUIRE(vm.smoothedMacros().tension > 0.95f);
+    REQUIRE(vm.smoothedMacros().excitation > 0.95f);
+}
+
 TEST_CASE("VoiceManager fuzz: macro automation mid-render (rapid sweeps)", "[contract][fuzz][automation]")
 {
     constexpr int kSampleRate = 48000;

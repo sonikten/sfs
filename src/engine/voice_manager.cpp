@@ -18,8 +18,12 @@ VoiceManager::VoiceManager(int substrateCells, int agentCount, float sampleRate)
           VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
           VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
           VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
-      }
+      },
+      sampleRate_(sampleRate)
 {
+    // Smoothed macros start at the same defaults as the targets so the
+    // first render block doesn't have to ramp from zero.
+    smoothedMacros_ = macroTargets_;
 }
 
 int VoiceManager::findFreeVoice() const noexcept
@@ -215,6 +219,29 @@ void VoiceManager::renderBlockStereo(float* outL, float* outR, int numSamples) n
     std::vector<float> bufL(static_cast<std::size_t>(numSamples), 0.0f);
     std::vector<float> bufR(static_cast<std::size_t>(numSamples), 0.0f);
 
+    // Per-parameter smoothing (sfs-spec/05 §4). One-pole low-pass on each
+    // macro at ~30 ms time constant. Block-rate smoothing keeps Voice's
+    // existing block-rate fan-out intact while removing the audible
+    // "zipper" of step-change automation. α derived from block size:
+    //   α = 1 - exp(-x), x = N/(τ·sr)
+    // std::exp is forbidden in src/engine for determinism (CLAUDE.md
+    // hard invariants), so we use the Padé approximation:
+    //   1 - exp(-x) ≈ 2x / (2 + x)
+    // Exact at x=0; matches std::exp within 3 sig figs for x ≤ 0.5
+    // (typical block-size / sample-rate range), within 10% up to x=1.5.
+    // Deterministic by construction (only float arithmetic).
+    constexpr float kTauSec = 0.030f;
+    const float denom = std::max(0.001f, kTauSec * sampleRate_);
+    const float x = static_cast<float>(numSamples) / denom;
+    const float alpha = (2.0f * x) / (2.0f + x);
+    smoothedMacros_.tension += (macroTargets_.tension - smoothedMacros_.tension) * alpha;
+    smoothedMacros_.damping += (macroTargets_.damping - smoothedMacros_.damping) * alpha;
+    smoothedMacros_.density += (macroTargets_.density - smoothedMacros_.density) * alpha;
+    smoothedMacros_.migration += (macroTargets_.migration - smoothedMacros_.migration) * alpha;
+    smoothedMacros_.coherence += (macroTargets_.coherence - smoothedMacros_.coherence) * alpha;
+    smoothedMacros_.excitation += (macroTargets_.excitation - smoothedMacros_.excitation) * alpha;
+    smoothedMacros_.clampInPlace();
+
     for (auto& s : slots_)
     {
         // Skip voices that aren't producing sound: not gated AND no
@@ -230,7 +257,7 @@ void VoiceManager::renderBlockStereo(float* outL, float* outR, int numSamples) n
         }
 
         // Push the shared macros snapshot + shape selection into this voice.
-        s.voice.macros() = macros_;
+        s.voice.macros() = smoothedMacros_;
         s.voice.setUniformShape(uniformShape_);
         s.voice.setMidiCc1(midiCc1_);
 

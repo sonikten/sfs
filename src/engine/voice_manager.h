@@ -43,8 +43,13 @@ public:
     // Mutable macros that ALL voices share. The plug-in shell writes once
     // before renderBlockStereo; each voice copies the snapshot at its own
     // block boundary.
-    [[nodiscard]] sfs::engine::macros::MacroValues& macros() noexcept { return macros_; }
-    [[nodiscard]] const sfs::engine::macros::MacroValues& macros() const noexcept { return macros_; }
+    [[nodiscard]] sfs::engine::macros::MacroValues& macros() noexcept { return macroTargets_; }
+    [[nodiscard]] const sfs::engine::macros::MacroValues& macros() const noexcept { return macroTargets_; }
+
+    // Inspection: the smoothed values currently driving the engine. Lags
+    // macros() by one-pole at ~30 ms time constant. Useful for tests +
+    // GUI readouts that want to show the actual rendered macro state.
+    [[nodiscard]] const sfs::engine::macros::MacroValues& smoothedMacros() const noexcept { return smoothedMacros_; }
 
     // Phase 2 uniform-shape selection: every voice's agents share the
     // same waveform. Plug-in shell writes from a host parameter.
@@ -91,9 +96,14 @@ private:
     int findStealVictim() const noexcept;
 
     std::array<VoiceSlot, kMaxVoices> slots_;
-    sfs::engine::macros::MacroValues macros_{};
+    // Macro layer: targets come from the host (PluginProcessor::processBlock
+    // writes them). smoothedMacros_ is what each Voice actually receives
+    // each block — a one-pole low-pass that catches up to targets gradually.
+    sfs::engine::macros::MacroValues macroTargets_{};
+    sfs::engine::macros::MacroValues smoothedMacros_{};
     sfs::engine::agents::AgentShape uniformShape_ = sfs::engine::agents::AgentShape::Sine;
     float midiCc1_ = 0.0f;
+    float sampleRate_ = 48000.0f;
     std::uint64_t nextAge_ = 1; // monotonically increasing
 };
 
