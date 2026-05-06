@@ -316,6 +316,77 @@ TEST_CASE("VoiceManager fuzz: CC1 mod wheel sweep mid-render", "[contract][fuzz]
     assertHealth("cc1_sweep", h);
 }
 
+TEST_CASE("VoiceManager fuzz: macro automation produces audibly distinct output", "[contract][fuzz][automation-effect]")
+{
+    // Render two scenarios with identical noteOn but different macro
+    // trajectories; assert the PCM output differs by a measurable margin.
+    // Catches the bug class "engine accidentally ignores macros mid-render"
+    // (e.g. if smoothing collapses to a no-op or fan-out gets short-circuited).
+
+    constexpr int kSampleRate = 48000;
+    constexpr int kBlockSize = 256;
+
+    auto runScenario = [](bool sweep)
+    {
+        VoiceManager vm(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
+        vm.macros().tension = 0.5f;
+        vm.macros().damping = 0.3f;
+        vm.macros().density = 0.6f;
+        vm.macros().migration = 0.2f;
+        vm.macros().coherence = 0.8f;
+        vm.macros().excitation = 0.3f;
+        vm.noteOn(60, 1.0f);
+
+        std::vector<float> bufL(static_cast<std::size_t>(kBlockSize), 0.0f);
+        std::vector<float> bufR(static_cast<std::size_t>(kBlockSize), 0.0f);
+        std::vector<float> out;
+        out.reserve(static_cast<std::size_t>(kSampleRate * 2));
+
+        constexpr int kBlocks = 192; // 1 s at 48k / 256
+        for (int b = 0; b < kBlocks; ++b)
+        {
+            if (sweep)
+            {
+                // Smooth ramp from 0 to 1 across the second.
+                const float t = static_cast<float>(b) / static_cast<float>(kBlocks - 1);
+                vm.macros().tension = t;
+                vm.macros().excitation = 1.0f - t;
+            }
+            vm.renderBlockStereo(bufL.data(), bufR.data(), kBlockSize);
+            for (int i = 0; i < kBlockSize; ++i)
+            {
+                const std::size_t idx = static_cast<std::size_t>(i);
+                out.push_back(bufL[idx]);
+                out.push_back(bufR[idx]);
+            }
+        }
+        return out;
+    };
+
+    const auto a = runScenario(false);
+    const auto b = runScenario(true);
+    REQUIRE(a.size() == b.size());
+
+    // Compute average absolute difference. With macros sweeping from
+    // {tension=0.5, exc=0.3} to {tension=1, exc=0}, the substrate's c²
+    // and agent modSensitivity move significantly — we expect a clearly
+    // audible difference. Threshold: average |Δ| > 0.005 (-46 dBFS).
+    double sumDiff = 0.0;
+    std::size_t diffCount = 0;
+    for (std::size_t i = 0; i < a.size(); ++i)
+    {
+        sumDiff += static_cast<double>(std::fabs(a[i] - b[i]));
+        if (a[i] != b[i])
+        {
+            ++diffCount;
+        }
+    }
+    const double meanDiff = sumDiff / static_cast<double>(a.size());
+    INFO("meanDiff=" << meanDiff << " diffCount=" << diffCount);
+    REQUIRE(meanDiff > 0.005);
+    REQUIRE(diffCount > a.size() / 2); // most samples should differ
+}
+
 TEST_CASE("VoiceManager fuzz: 30-second held-note stability", "[contract][fuzz][long-duration]")
 {
     constexpr int kSampleRate = 48000;
