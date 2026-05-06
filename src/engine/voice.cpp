@@ -86,6 +86,23 @@ Voice::Voice(int substrateCells, int agentCount, float sampleRate)
     ampEnv_.setSustainLevel(0.75f);
     ampEnv_.setReleaseMs(250.0f);
 
+    // Phase 2 LFO bank (sfs-spec/05 §5). Four LFOs per voice; default
+    // shapes/rates form a useful starting palette before the preset
+    // format lands. The mod matrix wires them to destinations.
+    constexpr float kDefaultLfoRates[kLfoCount] = {0.5f, 2.0f, 5.0f, 7.0f};
+    constexpr sfs::engine::lfo::LfoShape kDefaultLfoShapes[kLfoCount] = {
+        sfs::engine::lfo::LfoShape::Sine,
+        sfs::engine::lfo::LfoShape::Triangle,
+        sfs::engine::lfo::LfoShape::Sine,
+        sfs::engine::lfo::LfoShape::SampleHold,
+    };
+    for (int i = 0; i < kLfoCount; ++i)
+    {
+        lfos_[static_cast<std::size_t>(i)].setSampleRate(sampleRate);
+        lfos_[static_cast<std::size_t>(i)].setRateHz(kDefaultLfoRates[i]);
+        lfos_[static_cast<std::size_t>(i)].setShape(kDefaultLfoShapes[i]);
+    }
+
     // Default coefficients chosen for an audible "alive" feel out of the box,
     // close to sfs-spec/09 §3.7 internal defaults. Phase 2's macro fan-out
     // will set these from TENSION/DAMPING/etc.
@@ -111,6 +128,18 @@ void Voice::noteOn(int midiNote, float velocity)
 {
     agents_.noteOn(midiNote, velocity);
     ampEnv_.noteOn();
+    // Phase 2 LFOs retrigger from phase 0 at noteOn (free-running becomes
+    // a host-parameter choice when the preset format lands). Seed each
+    // LFO's S&H stream from the canonical (preset, voice, lfo) tuple.
+    constexpr std::uint64_t kPhase2PresetSeed = 0x5F5'5F5'5F5'5F5ull;
+    constexpr std::uint16_t kPhase2VoiceIndex = 0;
+    for (int i = 0; i < kLfoCount; ++i)
+    {
+        lfos_[static_cast<std::size_t>(i)].reset();
+        lfos_[static_cast<std::size_t>(i)].seedStream(kPhase2PresetSeed,
+                                                      kPhase2VoiceIndex,
+                                                      static_cast<std::uint16_t>(i));
+    }
     gated_ = true;
 }
 
@@ -154,6 +183,14 @@ void Voice::renderBlock(float* out, int numSamples) noexcept
     float prevOut = dcBlockerLastOutput_;
     for (int i = 0; i < numSamples; ++i)
     {
+        // LFO bank advances at sample rate even though no hardwired audio
+        // path consumes its output yet — the mod matrix (next commit)
+        // reads via lfoValues_. Ticking unconditionally keeps the values
+        // bit-exact regardless of routing state.
+        for (int li = 0; li < kLfoCount; ++li)
+        {
+            lfoValues_[static_cast<std::size_t>(li)] = lfos_[static_cast<std::size_t>(li)].tick();
+        }
         agents_.setVoiceGain(ampEnv_.tick());
         agents_.processOneSample(substrate_, sampleRate_);
         substrate_.step();
@@ -191,6 +228,10 @@ void Voice::renderBlockStereo(float* outL, float* outR, int numSamples) noexcept
 
     for (int i = 0; i < numSamples; ++i)
     {
+        for (int li = 0; li < kLfoCount; ++li)
+        {
+            lfoValues_[static_cast<std::size_t>(li)] = lfos_[static_cast<std::size_t>(li)].tick();
+        }
         agents_.setVoiceGain(ampEnv_.tick());
         agents_.processOneSample(substrate_, sampleRate_);
         substrate_.step();
