@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include "MacroPanel.h"
 #include "PluginProcessor.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -58,7 +59,8 @@ public:
 
 private:
     SubstrateView substrateView_;
-    juce::GenericAudioProcessorEditor knobs_;
+    MacroPanel macroPanel_;
+    juce::GenericAudioProcessorEditor advancedKnobs_;
 };
 
 } // namespace sfs::plugin

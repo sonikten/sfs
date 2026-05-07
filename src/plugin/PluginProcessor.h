@@ -44,6 +44,19 @@ public:
     // GUI accessor — read-only handle to the engine for the visualiser.
     [[nodiscard]] sfs::engine::VoiceManager* voiceManager() noexcept { return voiceManager_.get(); }
 
+    // Phase 4 GUI bindings: typed accessors so panels can wire JUCE
+    // SliderParameterAttachment / ComboBoxParameterAttachment without
+    // reaching into the param list by index. Pointers are non-owning;
+    // JUCE owns the parameters once they're added in the constructor.
+    [[nodiscard]] juce::AudioParameterFloat* tensionParam() noexcept { return tensionParam_; }
+    [[nodiscard]] juce::AudioParameterFloat* dampingParam() noexcept { return dampingParam_; }
+    [[nodiscard]] juce::AudioParameterFloat* densityParam() noexcept { return densityParam_; }
+    [[nodiscard]] juce::AudioParameterFloat* migrationParam() noexcept { return migrationParam_; }
+    [[nodiscard]] juce::AudioParameterFloat* coherenceParam() noexcept { return coherenceParam_; }
+    [[nodiscard]] juce::AudioParameterFloat* excitationParam() noexcept { return excitationParam_; }
+    [[nodiscard]] juce::AudioParameterChoice* topologyParam() noexcept { return topologyParam_; }
+    [[nodiscard]] juce::AudioParameterChoice* shapeParam() noexcept { return shapeParam_; }
+
     // ----- Identity -------------------------------------------------------
     const juce::String getName() const override { return "SFS (Phase 2)"; }
 
