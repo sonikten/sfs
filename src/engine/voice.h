@@ -35,6 +35,13 @@ public:
     void noteOn(int midiNote, float velocity);
     void noteOff();
 
+    // Same as noteOn but also resets the substrate to zero and starts a
+    // 5 ms output-gain ramp from 0 → 1. Used by VoiceManager when a
+    // voice is stolen — without these the prior note's substrate state
+    // produces a click as the new attack arrives. Phase 3 §9 step 2;
+    // closes the Phase 2 deferred risk from sfs-spec/01 §6.
+    void noteOnAfterSteal(int midiNote, float velocity);
+
     // Render `numSamples` of mono float audio. Reads at harvesterPosition_;
     // independent DC blocker state.
     void renderBlock(float* out, int numSamples) noexcept;
@@ -136,6 +143,14 @@ private:
     // paths each have their own state — switching paths between blocks
     // doesn't share the cache, but for a single render path the state
     // carries cleanly between blocks.
+    // Voice-steal anti-click ramp. 0.0..1.0; multiplies the per-voice
+    // output. Set to 0 by noteOnAfterSteal; advances by stealRampInc_
+    // per sample until it reaches 1.0, then stays at 1.0. Anti-click
+    // for voice stealing — the substrate is also reset on steal so the
+    // ramp covers the substrate's wake-up transient too.
+    float stealRampGain_ = 1.0f;
+    float stealRampInc_ = 1.0f;
+
     float dcBlockerAlpha_ = 0.999346f; // 1 - 2π·5/48000
     float dcBlockerLastInput_ = 0.0f;  // x[n-1]   (mono)
     float dcBlockerLastOutput_ = 0.0f; // y[n-1]   (mono)

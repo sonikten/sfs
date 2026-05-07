@@ -217,6 +217,28 @@ void Voice::noteOff()
     gated_ = false;
 }
 
+void Voice::noteOnAfterSteal(int midiNote, float velocity)
+{
+    // Reset substrate state so the prior note's residual energy doesn't
+    // bleed through the new note. Then trigger a 5 ms output-gain ramp
+    // from 0 → 1 so the substrate's wake-up transient (initial agent
+    // deposits propagating across the empty ring) doesn't click.
+    substrate_.reset();
+    dcBlockerLastInput_ = 0.0f;
+    dcBlockerLastOutput_ = 0.0f;
+    dcBlockerLastInputL_ = 0.0f;
+    dcBlockerLastOutputL_ = 0.0f;
+    dcBlockerLastInputR_ = 0.0f;
+    dcBlockerLastOutputR_ = 0.0f;
+
+    constexpr float kStealRampMs = 5.0f;
+    const float rampSamples = std::max(1.0f, kStealRampMs * 0.001f * sampleRate_);
+    stealRampGain_ = 0.0f;
+    stealRampInc_ = 1.0f / rampSamples;
+
+    noteOn(midiNote, velocity);
+}
+
 void Voice::renderBlock(float* out, int numSamples) noexcept
 {
     if (out == nullptr || numSamples <= 0)
@@ -266,7 +288,11 @@ void Voice::renderBlock(float* out, int numSamples) noexcept
         const float blocked = raw - prevIn + a * prevOut; // first-order DC block
         prevIn = raw;
         prevOut = blocked;
-        out[i] = softClip(kOutputPreGain * blocked);
+        out[i] = softClip(kOutputPreGain * blocked) * stealRampGain_;
+        if (stealRampGain_ < 1.0f)
+        {
+            stealRampGain_ = std::min(1.0f, stealRampGain_ + stealRampInc_);
+        }
     }
     dcBlockerLastInput_ = prevIn;
     dcBlockerLastOutput_ = prevOut;
@@ -309,13 +335,18 @@ void Voice::renderBlockStereo(float* outL, float* outR, int numSamples) noexcept
         const float blockedL = rawL - prevInL + a * prevOutL;
         prevInL = rawL;
         prevOutL = blockedL;
-        outL[i] = softClip(kOutputPreGain * blockedL);
+        outL[i] = softClip(kOutputPreGain * blockedL) * stealRampGain_;
 
         const float rawR = substrate_.read(posR);
         const float blockedR = rawR - prevInR + a * prevOutR;
         prevInR = rawR;
         prevOutR = blockedR;
-        outR[i] = softClip(kOutputPreGain * blockedR);
+        outR[i] = softClip(kOutputPreGain * blockedR) * stealRampGain_;
+
+        if (stealRampGain_ < 1.0f)
+        {
+            stealRampGain_ = std::min(1.0f, stealRampGain_ + stealRampInc_);
+        }
     }
 
     dcBlockerLastInputL_ = prevInL;

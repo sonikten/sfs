@@ -67,13 +67,22 @@ int VoiceManager::findStealVictim() const noexcept
 
 void VoiceManager::noteOn(int midiNote, float velocity)
 {
+    bool stealing = false;
     int idx = findFreeVoice();
     if (idx < 0)
     {
         idx = findStealVictim();
+        stealing = true;
     }
     auto& slot = slots_[static_cast<std::size_t>(idx)];
-    slot.voice.noteOn(midiNote, velocity);
+    if (stealing)
+    {
+        slot.voice.noteOnAfterSteal(midiNote, velocity);
+    }
+    else
+    {
+        slot.voice.noteOn(midiNote, velocity);
+    }
     slot.midiNote = midiNote;
     slot.ageCounter = nextAge_++;
 }
