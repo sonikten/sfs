@@ -177,6 +177,14 @@ add_subdirectory(src/engine/lfo)
 add_subdirectory(src/engine/mod_matrix)
 add_subdirectory(src/engine)
 
+# nlohmann/json — header-only, used by the preset loader. Vendored as
+# a submodule under third_party/. We add it here (after engine/) because
+# src/preset depends on the engine types it persists.
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+set(JSON_Install OFF CACHE INTERNAL "")
+add_subdirectory(third_party/nlohmann_json EXCLUDE_FROM_ALL)
+add_subdirectory(src/preset)
+
 # JUCE submodule lives at third_party/JUCE (pinned via tools/check_submodule_pins.sh).
 # Only wired in when the plug-in is being built — keeps DSP-only configures fast.
 if (SFS_BUILD_PLUGIN)

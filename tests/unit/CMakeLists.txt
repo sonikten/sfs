@@ -18,6 +18,7 @@ add_executable (sfs_unit_tests
     adsr_test.cpp
     lfo_test.cpp
     mod_matrix_test.cpp
+    preset_format_test.cpp
 )
 
 target_link_libraries (sfs_unit_tests
@@ -31,6 +32,7 @@ target_link_libraries (sfs_unit_tests
         SFS::Engine::Lfo
         SFS::Engine::ModMatrix
         SFS::Engine
+        SFS::Preset
         SFS::DeterminismFlags
         SFS::StrictWarnings
         Catch2::Catch2WithMain
