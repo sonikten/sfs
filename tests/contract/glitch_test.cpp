@@ -18,22 +18,18 @@
 #include <cstdio>
 #include <vector>
 
-TEST_CASE("Glitch contract (Phase 2 form): >= 5 onsets in 5 s for glitch preset", "[contract][glitch]")
+namespace
 {
-    using sfs::engine::Voice;
+
+int countGlitchOnsets(sfs::engine::Voice& voice)
+{
     using namespace sfs::engine::mod_matrix;
     using sfs::engine::lfo::LfoShape;
 
     constexpr int kSampleRate = 48000;
-    constexpr int kSubstrateCells = 1024;
-    constexpr int kAgentCount = 16;
     constexpr float kHoldSeconds = 5.0f;
     constexpr int kBlock = 256;
 
-    Voice voice(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
-
-    // Glitch preset (sfs-spec/08 §2.3): high EXCITATION + sample-and-hold
-    // LFOs driving DENSITY + EXCITATION at audio-rate-adjacent rates.
     voice.macros().tension = 0.6f;
     voice.macros().damping = 0.2f;
     voice.macros().density = 0.5f;
@@ -41,7 +37,6 @@ TEST_CASE("Glitch contract (Phase 2 form): >= 5 onsets in 5 s for glitch preset"
     voice.macros().coherence = 0.5f;
     voice.macros().excitation = 0.5f;
 
-    // S&H LFOs at fast rates — discrete jumps each cycle.
     voice.lfo(2).setShape(LfoShape::SampleHold);
     voice.lfo(2).setRateHz(8.0f);
     voice.lfo(3).setShape(LfoShape::SampleHold);
@@ -51,9 +46,8 @@ TEST_CASE("Glitch contract (Phase 2 form): >= 5 onsets in 5 s for glitch preset"
     voice.modMatrix().setSlot(0, Source::Lfo3, Destination::Density, 0.5f);
     voice.modMatrix().setSlot(1, Source::Lfo4, Destination::Excitation, 0.5f);
 
-    voice.noteOn(60, 1.0f); // C4
+    voice.noteOn(60, 1.0f);
 
-    // Render mono.
     const int totalSamples = static_cast<int>(kHoldSeconds * static_cast<float>(kSampleRate));
     std::vector<float> mono(static_cast<std::size_t>(totalSamples), 0.0f);
     for (int written = 0; written < totalSamples; written += kBlock)
@@ -62,7 +56,6 @@ TEST_CASE("Glitch contract (Phase 2 form): >= 5 onsets in 5 s for glitch preset"
         voice.renderBlock(mono.data() + written, n);
     }
 
-    // Short-term RMS envelope (1024-sample window, 256-sample hop ≈ 5 ms).
     constexpr int kWin = 1024;
     constexpr int kHop = 256;
     std::vector<float> rms;
@@ -77,11 +70,11 @@ TEST_CASE("Glitch contract (Phase 2 form): >= 5 onsets in 5 s for glitch preset"
         }
         rms.push_back(static_cast<float>(std::sqrt(sumSq / static_cast<double>(kWin))));
     }
-    REQUIRE(!rms.empty());
+    if (rms.empty())
+    {
+        return 0;
+    }
 
-    // Onset = rising-edge crossing of (meanRms × 1.5) with hysteresis at
-    // (meanRms × 0.7). The hysteresis gap prevents single-sample chatter
-    // from inflating the count when the RMS is near the threshold.
     double sumRms = 0.0;
     for (float r : rms)
     {
@@ -106,8 +99,36 @@ TEST_CASE("Glitch contract (Phase 2 form): >= 5 onsets in 5 s for glitch preset"
         }
     }
 
-    std::printf("\n[glitch contract] frames=%zu meanRms=%.4f onsets=%d\n", rms.size(), meanRms, onsets);
+    std::printf("[glitch contract] frames=%zu meanRms=%.4f onsets=%d\n", rms.size(), meanRms, onsets);
+    return onsets;
+}
 
-    // Spec: 50 in 50s → 5 in 5s.
+} // namespace
+
+TEST_CASE("Glitch contract (1D Phase 2 form): >= 5 onsets in 5 s", "[contract][glitch][1d]")
+{
+    using sfs::engine::Voice;
+
+    constexpr int kSampleRate = 48000;
+    constexpr int kSubstrateCells = 1024;
+    constexpr int kAgentCount = 16;
+
+    Voice voice(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
+    const int onsets = countGlitchOnsets(voice);
+    REQUIRE(onsets >= 5);
+}
+
+TEST_CASE("Glitch contract (2D torus): >= 5 onsets in 5 s", "[contract][glitch][2d]")
+{
+    using sfs::engine::Topology;
+    using sfs::engine::Voice;
+
+    constexpr int kSampleRate = 48000;
+    constexpr int kSubstrateCells = 1024;
+    constexpr int kAgentCount = 16;
+
+    Voice voice(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
+    voice.setTopology(Topology::Torus2D);
+    const int onsets = countGlitchOnsets(voice);
     REQUIRE(onsets >= 5);
 }

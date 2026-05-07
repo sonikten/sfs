@@ -97,25 +97,22 @@ void applyHannWindow(float* buf, int n)
 
 } // namespace
 
-TEST_CASE("Organic contract (Phase 2 form): centroid drifts > 50 Hz over time", "[contract][organic]")
+namespace
 {
-    using sfs::engine::Voice;
+
+double measureOrganicStddev(sfs::engine::Voice& voice)
+{
     using namespace sfs::engine::mod_matrix;
     using sfs::engine::lfo::LfoShape;
 
     constexpr int kSampleRate = 48000;
-    constexpr int kSubstrateCells = 1024;
-    constexpr int kAgentCount = 16;
     constexpr int kRenderSeconds = 6;
     constexpr int kAnalysisStart = 1;
     constexpr int kAnalysisEnd = 6;
     constexpr int kNFft = 4096;
     constexpr int kHop = 1024;
+    constexpr int kBlock = 256;
 
-    Voice voice(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
-
-    // Organic preset (sfs-spec/08 §2.3): high MIGRATION drift + low
-    // COHERENCE (incoherent cluster) + slow LFO drifting TENSION.
     voice.macros().tension = 0.5f;
     voice.macros().damping = 0.4f;
     voice.macros().density = 0.6f;
@@ -124,27 +121,23 @@ TEST_CASE("Organic contract (Phase 2 form): centroid drifts > 50 Hz over time", 
     voice.macros().excitation = 0.4f;
 
     voice.lfo(0).setShape(LfoShape::Sine);
-    voice.lfo(0).setRateHz(0.3f); // slow tension drift
+    voice.lfo(0).setRateHz(0.3f);
 
     voice.modMatrix().clearAllSlots();
     voice.modMatrix().setSlot(0, Source::Lfo1, Destination::Tension, 0.4f);
 
     voice.noteOn(60, 1.0f);
 
-    // Render mono into one buffer.
     const int totalSamples = kRenderSeconds * kSampleRate;
     std::vector<float> mono(static_cast<std::size_t>(totalSamples), 0.0f);
-    constexpr int kBlock = 256;
     for (int written = 0; written < totalSamples; written += kBlock)
     {
         const int n = std::min(kBlock, totalSamples - written);
         voice.renderBlock(mono.data() + written, n);
     }
 
-    // STFT centroid time series in the analysis window.
     const int analysisStartSample = kAnalysisStart * kSampleRate;
     const int analysisEndSample = kAnalysisEnd * kSampleRate;
-    REQUIRE(analysisStartSample + kNFft <= analysisEndSample);
 
     std::vector<float> windowed(static_cast<std::size_t>(kNFft), 0.0f);
     std::vector<cfloat> spec(static_cast<std::size_t>(kNFft), {0.0f, 0.0f});
@@ -158,24 +151,22 @@ TEST_CASE("Organic contract (Phase 2 form): centroid drifts > 50 Hz over time", 
             windowed[static_cast<std::size_t>(i)] = mono[static_cast<std::size_t>(frameStart + i)];
         }
         applyHannWindow(windowed.data(), kNFft);
-
         for (int i = 0; i < kNFft; ++i)
         {
             spec[static_cast<std::size_t>(i)] = cfloat(windowed[static_cast<std::size_t>(i)], 0.0f);
         }
         fft(spec.data(), kNFft);
-
         const float c = spectralCentroidHz(spec.data(), kNFft, static_cast<float>(kSampleRate));
         if (c > 0.0f)
         {
             centroids.push_back(c);
         }
     }
-    REQUIRE(!centroids.empty());
+    if (centroids.empty())
+    {
+        return 0.0;
+    }
 
-    // Mean and stddev of the centroid time series. The stddev approximates
-    // the "band-passed centroid RMS" called out in the spec criterion: a
-    // static drone has stddev ~10 Hz, an organic drift should clear 50 Hz.
     double sum = 0.0;
     for (float c : centroids)
     {
@@ -190,9 +181,36 @@ TEST_CASE("Organic contract (Phase 2 form): centroid drifts > 50 Hz over time", 
         sumSq += d * d;
     }
     const double stddev = std::sqrt(sumSq / static_cast<double>(centroids.size()));
+    std::printf("[organic contract] frames=%zu mean=%.1f Hz stddev=%.1f Hz\n", centroids.size(), mean, stddev);
+    return stddev;
+}
 
-    std::printf("\n[organic contract] frames=%zu mean=%.1f Hz stddev=%.1f Hz\n", centroids.size(), mean, stddev);
+} // namespace
 
-    // Spec criterion: band-passed centroid RMS > 50 Hz.
+TEST_CASE("Organic contract (1D Phase 2 form): centroid drifts > 50 Hz", "[contract][organic][1d]")
+{
+    using sfs::engine::Voice;
+
+    constexpr int kSampleRate = 48000;
+    constexpr int kSubstrateCells = 1024;
+    constexpr int kAgentCount = 16;
+
+    Voice voice(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
+    const double stddev = measureOrganicStddev(voice);
+    REQUIRE(stddev > 50.0);
+}
+
+TEST_CASE("Organic contract (2D torus): centroid drifts > 50 Hz", "[contract][organic][2d]")
+{
+    using sfs::engine::Topology;
+    using sfs::engine::Voice;
+
+    constexpr int kSampleRate = 48000;
+    constexpr int kSubstrateCells = 1024;
+    constexpr int kAgentCount = 16;
+
+    Voice voice(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
+    voice.setTopology(Topology::Torus2D);
+    const double stddev = measureOrganicStddev(voice);
     REQUIRE(stddev > 50.0);
 }

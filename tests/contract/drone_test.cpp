@@ -106,36 +106,27 @@ void applyHannWindow(float* buf, int n)
 
 } // namespace
 
-TEST_CASE("Drone contract (degraded Phase 1 form): spectral centroid is stable", "[contract][drone]")
+namespace
 {
-    using sfs::engine::Voice;
 
+// Run the drone-pure preset on the supplied voice (1D or 2D topology
+// already configured by the caller) and compute the centroid CV.
+double measureDroneCv(sfs::engine::Voice& voice)
+{
     constexpr int kSampleRate = 48000;
-    constexpr int kSubstrateCells = 1024;
-    constexpr int kAgentCount = 16;
     constexpr int kRenderSeconds = 5;
-    constexpr int kAnalysisStart = 1; // skip first 1 s (transient)
-    constexpr int kAnalysisEnd = 5;   // analyse seconds [1, 5)
+    constexpr int kAnalysisStart = 1;
+    constexpr int kAnalysisEnd = 5;
     constexpr int kNFft = 4096;
     constexpr int kHop = 1024;
+    constexpr int kBlock = 256;
 
-    Voice voice(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
-
-    // Phase 2 drone-pure preset via macros:
-    //   * EXCITATION = 0 → agentModSensitivityScale = 0 (no substrate bend)
-    //   * MIGRATION  = 0 → no drift, no Gaussian wandering
-    //   * COHERENCE  = 1 → agentDetuneScale = 0, all agents locked to f0
-    // The macro fan-out at each block boundary now writes these to
-    // per-agent state, so no manual per-agent zeroing is needed.
     voice.macros().excitation = 0.0f;
     voice.macros().migration = 0.0f;
     voice.macros().coherence = 1.0f;
-    // Drone preset: empty mod matrix — the default slots wobble the
-    // macros around, which is the wrong contract for "stable drone".
     voice.modMatrix().clearAllSlots();
-    voice.noteOn(60, 1.0f); // C4
+    voice.noteOn(60, 1.0f);
     auto& agents = voice.agents();
-    // Cover the first sample before the first block's fan-out runs.
     for (int i = 0; i < agents.activeCount(); ++i)
     {
         agents.mutableAgent(i).migrationRate = 0.0f;
@@ -143,20 +134,16 @@ TEST_CASE("Drone contract (degraded Phase 1 form): spectral centroid is stable",
         agents.mutableAgent(i).modSensitivity = 0.0f;
     }
 
-    // Render mono into a contiguous buffer.
     const int totalSamples = kRenderSeconds * kSampleRate;
     std::vector<float> mono(static_cast<std::size_t>(totalSamples), 0.0f);
-    constexpr int kBlock = 256;
     for (int written = 0; written < totalSamples; written += kBlock)
     {
         const int n = std::min(kBlock, totalSamples - written);
         voice.renderBlock(mono.data() + written, n);
     }
 
-    // STFT over the analysis window.
     const int analysisStartSample = kAnalysisStart * kSampleRate;
     const int analysisEndSample = kAnalysisEnd * kSampleRate;
-    REQUIRE(analysisStartSample + kNFft <= analysisEndSample);
 
     std::vector<float> windowed(static_cast<std::size_t>(kNFft), 0.0f);
     std::vector<cfloat> spec(static_cast<std::size_t>(kNFft), {0.0f, 0.0f});
@@ -165,20 +152,16 @@ TEST_CASE("Drone contract (degraded Phase 1 form): spectral centroid is stable",
 
     for (int frameStart = analysisStartSample; frameStart + kNFft <= analysisEndSample; frameStart += kHop)
     {
-        // Copy + window.
         for (int i = 0; i < kNFft; ++i)
         {
             windowed[static_cast<std::size_t>(i)] = mono[static_cast<std::size_t>(frameStart + i)];
         }
         applyHannWindow(windowed.data(), kNFft);
-
-        // To complex.
         for (int i = 0; i < kNFft; ++i)
         {
             spec[static_cast<std::size_t>(i)] = cfloat(windowed[static_cast<std::size_t>(i)], 0.0f);
         }
         fft(spec.data(), kNFft);
-
         const float c = spectralCentroidHz(spec.data(), kNFft, static_cast<float>(kSampleRate));
         if (c > 0.0f)
         {
@@ -186,9 +169,11 @@ TEST_CASE("Drone contract (degraded Phase 1 form): spectral centroid is stable",
         }
     }
 
-    REQUIRE(!centroids.empty());
+    if (centroids.empty())
+    {
+        return 1.0;
+    }
 
-    // Compute mean and stddev of the centroid time series.
     double sum = 0.0;
     for (float c : centroids)
     {
@@ -203,15 +188,42 @@ TEST_CASE("Drone contract (degraded Phase 1 form): spectral centroid is stable",
         sumSq += d * d;
     }
     const double stddev = std::sqrt(sumSq / static_cast<double>(centroids.size()));
-
     const double cv = (mean > 0.0) ? (stddev / mean) : 1.0;
 
-    std::printf("\n[drone contract] frames=%zu  mean centroid=%.1f Hz  stddev=%.1f Hz  cv=%.4f\n",
+    std::printf("[drone contract] frames=%zu mean=%.1f Hz stddev=%.1f Hz cv=%.4f\n",
                 centroids.size(),
                 mean,
                 stddev,
                 cv);
+    return cv;
+}
 
-    // Spec criterion: stddev/mean < 0.05 (5%). Drone IS a stable timbre.
+} // namespace
+
+TEST_CASE("Drone contract (1D Phase 2 form): spectral centroid is stable", "[contract][drone][1d]")
+{
+    using sfs::engine::Voice;
+
+    constexpr int kSampleRate = 48000;
+    constexpr int kSubstrateCells = 1024;
+    constexpr int kAgentCount = 16;
+
+    Voice voice(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
+    const double cv = measureDroneCv(voice);
+    REQUIRE(cv < 0.05);
+}
+
+TEST_CASE("Drone contract (2D torus): spectral centroid is stable", "[contract][drone][2d]")
+{
+    using sfs::engine::Topology;
+    using sfs::engine::Voice;
+
+    constexpr int kSampleRate = 48000;
+    constexpr int kSubstrateCells = 1024;
+    constexpr int kAgentCount = 16;
+
+    Voice voice(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
+    voice.setTopology(Topology::Torus2D);
+    const double cv = measureDroneCv(voice);
     REQUIRE(cv < 0.05);
 }
