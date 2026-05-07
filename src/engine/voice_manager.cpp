@@ -360,6 +360,56 @@ bool VoiceManager::snapshotPrimaryVoiceSubstrate(float* dst, int dstSize) const 
     return true;
 }
 
+bool VoiceManager::snapshotPrimaryVoiceAgents(AgentSnapshot* dst, int dstCapacity, int& outCount) const noexcept
+{
+    outCount = 0;
+    if (dst == nullptr || dstCapacity <= 0)
+    {
+        return false;
+    }
+    int best = -1;
+    std::uint64_t bestAge = 0;
+    int bestRel = -1;
+    std::uint64_t bestRelAge = 0;
+    for (int i = 0; i < kMaxVoices; ++i)
+    {
+        const auto& s = slots_[static_cast<std::size_t>(i)];
+        if (s.voice.isGated())
+        {
+            if (best < 0 || s.ageCounter > bestAge)
+            {
+                best = i;
+                bestAge = s.ageCounter;
+            }
+        }
+        else if (s.midiNote >= 0)
+        {
+            if (bestRel < 0 || s.ageCounter > bestRelAge)
+            {
+                bestRel = i;
+                bestRelAge = s.ageCounter;
+            }
+        }
+    }
+    const int chosen = (best >= 0) ? best : bestRel;
+    if (chosen < 0)
+    {
+        return false;
+    }
+    const auto& agents = slots_[static_cast<std::size_t>(chosen)].voice.agents();
+    const int n = std::min(agents.activeCount(), dstCapacity);
+    for (int i = 0; i < n; ++i)
+    {
+        const auto& a = agents.agent(i);
+        dst[i].position = a.position;
+        dst[i].positionY = a.positionY;
+        dst[i].shape = static_cast<int>(a.shape);
+        dst[i].amplitude = a.amplitude;
+    }
+    outCount = n;
+    return true;
+}
+
 int VoiceManager::activeVoiceCount() const noexcept
 {
     int n = 0;

@@ -29,6 +29,21 @@ void SubstrateView::timerCallback()
     }
     is2D_ = (vm->topology() == sfs::engine::Topology::Torus2D);
     const bool gotData = vm->snapshotPrimaryVoiceSubstrate(snapshot_.data(), kCells);
+
+    // Agent snapshot. The two arrays decouple — substrate may have data
+    // even after the voice is fully released (decaying tail) while
+    // agents stop emitting new content.
+    sfs::engine::VoiceManager::AgentSnapshot agentBuf[kMaxAgentDots];
+    int actual = 0;
+    vm->snapshotPrimaryVoiceAgents(agentBuf, kMaxAgentDots, actual);
+    agentCount_ = actual;
+    for (int i = 0; i < actual; ++i)
+    {
+        agents_[static_cast<std::size_t>(i)].position = agentBuf[i].position;
+        agents_[static_cast<std::size_t>(i)].positionY = agentBuf[i].positionY;
+        agents_[static_cast<std::size_t>(i)].shape = agentBuf[i].shape;
+        agents_[static_cast<std::size_t>(i)].amplitude = agentBuf[i].amplitude;
+    }
     if (!gotData)
     {
         // No active voice — fade snapshot to zero gradually so the line
@@ -110,6 +125,115 @@ void SubstrateView::paint(juce::Graphics& g)
     g.drawText(label, bounds.reduced(8.0f), juce::Justification::topLeft);
 }
 
+namespace
+{
+
+// Doc 07 §4.1.1: agent waveform → colour (sine = blue, saw = orange,
+// square = red, fmpair = purple, noise = gray).
+juce::Colour agentColour(int shape)
+{
+    switch (shape)
+    {
+    case 1:
+        return juce::Colour::fromRGB(220, 150, 50); // saw — orange
+    case 2:
+        return juce::Colour::fromRGB(220, 80, 80); // square — red
+    case 3:
+        return juce::Colour::fromRGB(180, 120, 220); // fmpair — purple
+    case 4:
+        return juce::Colour::fromRGB(150, 150, 160); // noise — gray
+    default:
+        return juce::Colour::fromRGB(100, 180, 230); // sine — blue
+    }
+}
+
+} // namespace
+
+void SubstrateView::paintAgents1D(juce::Graphics& g, juce::Rectangle<float> bounds) const
+{
+    if (agentCount_ <= 0)
+    {
+        return;
+    }
+    const float w = bounds.getWidth();
+    const float h = bounds.getHeight();
+    // Y row reserved for agents — sit them just above the harvester row.
+    const float dotRowY = bounds.getBottom() - h * 0.25f;
+    const float dxPerCell = w / static_cast<float>(kCells);
+    for (int i = 0; i < agentCount_; ++i)
+    {
+        const auto& a = agents_[static_cast<std::size_t>(i)];
+        // Wrap position into [0, kCells) just in case migration drifted it.
+        float p = a.position;
+        while (p < 0.0f)
+        {
+            p += static_cast<float>(kCells);
+        }
+        while (p >= static_cast<float>(kCells))
+        {
+            p -= static_cast<float>(kCells);
+        }
+        const float x = bounds.getX() + p * dxPerCell;
+        const float radius = 1.5f + 2.0f * juce::jlimit(0.0f, 1.0f, a.amplitude);
+        g.setColour(agentColour(a.shape).withAlpha(0.85f));
+        g.fillEllipse(x - radius, dotRowY - radius, radius * 2.0f, radius * 2.0f);
+    }
+}
+
+void SubstrateView::paintHarvesters1D(juce::Graphics& g, juce::Rectangle<float> bounds) const
+{
+    g.setColour(juce::Colour::fromRGB(220, 140, 120));
+    const float w = bounds.getWidth();
+    const float h = bounds.getHeight();
+    const float dx = w / static_cast<float>(kCells - 1);
+    const float markerH = h * 0.12f;
+    for (int pos : {0, kCells / 2})
+    {
+        const float x = bounds.getX() + dx * static_cast<float>(pos);
+        g.fillRect(x - 1.0f, bounds.getBottom() - markerH, 2.0f, markerH);
+    }
+}
+
+void SubstrateView::paintAgents2D(
+    juce::Graphics& g, juce::Rectangle<float> /*bounds*/, float originX, float originY, float gridSize) const
+{
+    if (agentCount_ <= 0)
+    {
+        return;
+    }
+    constexpr int kNx = 32;
+    constexpr int kNy = 32;
+    const float cellW = gridSize / static_cast<float>(kNx);
+    const float cellH = gridSize / static_cast<float>(kNy);
+    for (int i = 0; i < agentCount_; ++i)
+    {
+        const auto& a = agents_[static_cast<std::size_t>(i)];
+        float px = a.position;
+        float py = a.positionY;
+        while (px < 0.0f)
+        {
+            px += static_cast<float>(kNx);
+        }
+        while (px >= static_cast<float>(kNx))
+        {
+            px -= static_cast<float>(kNx);
+        }
+        while (py < 0.0f)
+        {
+            py += static_cast<float>(kNy);
+        }
+        while (py >= static_cast<float>(kNy))
+        {
+            py -= static_cast<float>(kNy);
+        }
+        const float x = originX + px * cellW;
+        const float y = originY + py * cellH;
+        const float radius = 1.5f + 2.0f * juce::jlimit(0.0f, 1.0f, a.amplitude);
+        g.setColour(agentColour(a.shape).withAlpha(0.95f));
+        g.fillEllipse(x - radius, y - radius, radius * 2.0f, radius * 2.0f);
+    }
+}
+
 void SubstrateView::paint1D(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
     g.setColour(juce::Colour::fromRGB(40, 42, 55));
@@ -141,14 +265,9 @@ void SubstrateView::paint1D(juce::Graphics& g, juce::Rectangle<float> bounds)
     g.setColour(hasSignal_ ? juce::Colour::fromRGB(120, 220, 200) : juce::Colour::fromRGB(60, 90, 80));
     g.strokePath(trace, juce::PathStrokeType(1.4f));
 
-    // Harvester position markers (stereo: positions 0 and N/2).
-    g.setColour(juce::Colour::fromRGB(220, 140, 120));
-    const float markerH = h * 0.12f;
-    for (int pos : {0, kCells / 2})
-    {
-        const float x = bounds.getX() + dx * static_cast<float>(pos);
-        g.fillRect(x - 1.0f, bounds.getBottom() - markerH, 2.0f, markerH);
-    }
+    // Agent dots + harvester position markers (Doc 07 §4.1.1).
+    paintAgents1D(g, bounds);
+    paintHarvesters1D(g, bounds);
 }
 
 void SubstrateView::paint2D(juce::Graphics& g, juce::Rectangle<float> bounds)
@@ -197,6 +316,9 @@ void SubstrateView::paint2D(juce::Graphics& g, juce::Rectangle<float> bounds)
                        cellH + 0.5f);
         }
     }
+
+    // Agent dots overlay (Doc 07 §4.1.2).
+    paintAgents2D(g, bounds, originX, originY, gridSize);
 
     // Harvester L/R position markers (stereo positions 0 and N/2 along
     // the X axis at midY — sfs-spec/04 §3.6 stereo default).

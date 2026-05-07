@@ -41,10 +41,26 @@ private:
     void timerCallback() override;
     void paint1D(juce::Graphics& g, juce::Rectangle<float> bounds);
     void paint2D(juce::Graphics& g, juce::Rectangle<float> bounds);
+    void paintAgents1D(juce::Graphics& g, juce::Rectangle<float> bounds) const;
+    void
+    paintAgents2D(juce::Graphics& g, juce::Rectangle<float> bounds, float originX, float originY, float gridSize) const;
+    void paintHarvesters1D(juce::Graphics& g, juce::Rectangle<float> bounds) const;
 
     SfsAudioProcessor& processor_;
     static constexpr int kCells = 1024;
+    static constexpr int kMaxAgentDots = 64;
     std::array<float, kCells> snapshot_{};
+
+    struct AgentDot
+    {
+        float position{};
+        float positionY{};
+        int shape{0};
+        float amplitude{0.0f};
+    };
+    std::array<AgentDot, kMaxAgentDots> agents_{};
+    int agentCount_ = 0;
+
     float displayScale_ = 1.0f; // auto-normalising peak
     bool hasSignal_ = false;
     bool is2D_ = false; // routed in timerCallback from VoiceManager::topology()

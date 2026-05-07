@@ -134,6 +134,19 @@ public:
     // visualisation buffer). Lock-free; safe to call from a Timer thread.
     bool snapshotPrimaryVoiceSubstrate(float* dst, int dstSize) const noexcept;
 
+    // GUI snapshot: copies the primary voice's agent positions / shapes /
+    // amplitudes into dst[0..outCount). Returns true if a voice was
+    // populated; outCount is the number of entries written (≤ dstCapacity
+    // and ≤ the voice's activeCount). Lock-free.
+    struct AgentSnapshot
+    {
+        float position{};  // 1D cell index OR 2D X cell index
+        float positionY{}; // 2D Y; 0 in 1D mode
+        int shape{0};      // AgentShape index 0..4
+        float amplitude{0.0f};
+    };
+    bool snapshotPrimaryVoiceAgents(AgentSnapshot* dst, int dstCapacity, int& outCount) const noexcept;
+
     // Inspection.
     [[nodiscard]] int activeVoiceCount() const noexcept;
 
