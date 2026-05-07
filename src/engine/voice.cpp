@@ -86,12 +86,16 @@ sfs::engine::macros::MacroValues Voice::applyModMatrix(const sfs::engine::macros
 void Voice::applyMacroFanOut(const sfs::engine::macros::InternalFields& fields) noexcept
 {
     // Substrate κ from the spec's viscosity fan-out (sfs-spec/05 §3.1 +
-    // §3.6): κ = clamp(viscosityFloor + viscosityOffset, 0, κ_max). The
-    // CFL bound c² + κ ≤ 0.475 (1D) caps the upper edge to keep the
-    // leapfrog stable at the engine-clamp limit.
-    constexpr float kKappaMax = 0.225f; // 1D CFL slack at c²≤0.25
+    // §3.6): κ = clamp(viscosityFloor + viscosityOffset, 0, κ_max).
+    constexpr float kKappaMax = 0.225f;
     const float kappa = std::clamp(fields.substrateViscosityFloor + fields.substrateViscosityOffset, 0.0f, kKappaMax);
+    // Both substrates always receive the macro-driven coefficients so
+    // switching topology mid-render gets the right behaviour
+    // immediately — the inactive substrate is just unread, not stale.
+    // The 2D CFL clamp (c² + κ ≤ 0.225) is enforced internally by
+    // Substrate2D::setCoefficients.
     substrate_.setCoefficients(fields.substrateC2, kappa, fields.substrateGamma);
+    substrate2D_.setCoefficients(fields.substrateC2, kappa, fields.substrateGamma);
 
     // DENSITY: live resize the active subset BEFORE we walk active agents.
     agents_.setActiveCount(fields.agentActiveCount);
@@ -121,11 +125,24 @@ void Voice::snapshotSubstrate(float* dst, int dstSize) const noexcept
     {
         return;
     }
-    substrate_.snapshot(dst, static_cast<std::size_t>(dstSize));
+    if (topology_ == Topology::Torus2D)
+    {
+        substrate2D_.snapshot(dst, static_cast<std::size_t>(dstSize));
+    }
+    else
+    {
+        substrate_.snapshot(dst, static_cast<std::size_t>(dstSize));
+    }
 }
 
 Voice::Voice(int substrateCells, int agentCount, float sampleRate)
-    : substrate_(substrateCells, sampleRate), agents_(agentCount), sampleRate_(sampleRate)
+    : substrate_(substrateCells, sampleRate),
+      // 2D substrate sized for the same total cell count (32×32 = 1024
+      // matches the 1D default). Phase 4 preset format will let the user
+      // pick 64×64 or 128×128 explicitly.
+      substrate2D_(32, 32, sampleRate),
+      agents_(agentCount),
+      sampleRate_(sampleRate)
 {
     // Phase 2 amplitude envelope. Defaults are middle-of-road
     // pad/lead values; preset format will overwrite in Phase 4.
@@ -165,6 +182,9 @@ Voice::Voice(int substrateCells, int agentCount, float sampleRate)
     // close to sfs-spec/09 §3.7 internal defaults. Phase 2's macro fan-out
     // will set these from TENSION/DAMPING/etc.
     substrate_.setCoefficients(0.30f, 0.05f, 0.005f);
+    // 2D substrate uses the tighter CFL bound (0.225); pick coefficients
+    // that satisfy it and feel similar in character to the 1D defaults.
+    substrate2D_.setCoefficients(0.15f, 0.04f, 0.005f);
     agents_.layoutEvenly(substrateCells);
 
     // DC blocker α from the host sample rate (sfs-spec/02 §6).
@@ -217,13 +237,44 @@ void Voice::noteOff()
     gated_ = false;
 }
 
+void Voice::setTopology(Topology t) noexcept
+{
+    if (topology_ == t)
+    {
+        return;
+    }
+    topology_ = t;
+    // Reset both substrates so the prior topology's residual energy
+    // doesn't bleed through. Re-lay the agents for the new topology.
+    substrate_.reset();
+    substrate2D_.reset();
+    if (t == Topology::Torus2D)
+    {
+        agents_.layoutEvenly2D(substrate2D_.cellsX(), substrate2D_.cellsY());
+    }
+    else
+    {
+        agents_.layoutEvenly(substrate_.size());
+    }
+    // Reset DC-blocker filter state too — the new substrate's harvester
+    // reads start from zero.
+    dcBlockerLastInput_ = 0.0f;
+    dcBlockerLastOutput_ = 0.0f;
+    dcBlockerLastInputL_ = 0.0f;
+    dcBlockerLastOutputL_ = 0.0f;
+    dcBlockerLastInputR_ = 0.0f;
+    dcBlockerLastOutputR_ = 0.0f;
+}
+
 void Voice::noteOnAfterSteal(int midiNote, float velocity)
 {
-    // Reset substrate state so the prior note's residual energy doesn't
-    // bleed through the new note. Then trigger a 5 ms output-gain ramp
-    // from 0 → 1 so the substrate's wake-up transient (initial agent
-    // deposits propagating across the empty ring) doesn't click.
+    // Reset both substrate states so the prior note's residual energy
+    // doesn't bleed through the new note (independent of which topology
+    // is currently active — switching topology + stealing in the same
+    // window leaves no residual). 5 ms output-gain ramp 0 → 1 covers the
+    // substrate's wake-up transient.
     substrate_.reset();
+    substrate2D_.reset();
     dcBlockerLastInput_ = 0.0f;
     dcBlockerLastOutput_ = 0.0f;
     dcBlockerLastInputL_ = 0.0f;
@@ -268,23 +319,34 @@ void Voice::renderBlock(float* out, int numSamples) noexcept
     applyMacroFanOut(fields);
 
     const float pos = harvesterPosition_;
+    const float pos2DX = static_cast<float>(substrate2D_.cellsX()) * 0.5f;
+    const float pos2DY = static_cast<float>(substrate2D_.cellsY()) * 0.5f;
     const float a = dcBlockerAlpha_;
     float prevIn = dcBlockerLastInput_;
     float prevOut = dcBlockerLastOutput_;
+    const bool use2D = (topology_ == Topology::Torus2D);
     for (int i = 0; i < numSamples; ++i)
     {
-        // LFO bank advances at sample rate even though no hardwired audio
-        // path consumes its output yet — the mod matrix (next commit)
-        // reads via lfoValues_. Ticking unconditionally keeps the values
-        // bit-exact regardless of routing state.
         for (int li = 0; li < kLfoCount; ++li)
         {
             lfoValues_[static_cast<std::size_t>(li)] = lfos_[static_cast<std::size_t>(li)].tick();
         }
         agents_.setVoiceGain(ampEnv_.tick());
-        agents_.processOneSample(substrate_, sampleRate_);
-        substrate_.step();
-        const float raw = substrate_.read(pos);
+
+        float raw = 0.0f;
+        if (use2D)
+        {
+            agents_.processOneSample(substrate2D_, sampleRate_);
+            substrate2D_.step();
+            raw = substrate2D_.read(pos2DX, pos2DY);
+        }
+        else
+        {
+            agents_.processOneSample(substrate_, sampleRate_);
+            substrate_.step();
+            raw = substrate_.read(pos);
+        }
+
         const float blocked = raw - prevIn + a * prevOut; // first-order DC block
         prevIn = raw;
         prevOut = blocked;
@@ -320,6 +382,15 @@ void Voice::renderBlockStereo(float* outL, float* outR, int numSamples) noexcept
 
     const float posL = harvesterPositionStereoL_;
     const float posR = harvesterPositionStereoR_;
+    // 2D harvester layout: L at (0, midY), R at (midX, midY) — same
+    // X-axis spread as 1D (positions 0 and N/2 along the ring) with
+    // Y centred. Phase 4 multichannel will let the harvester ring
+    // around the torus in a polygonal pattern.
+    const float pos2DLx = 0.0f;
+    const float pos2DLy = static_cast<float>(substrate2D_.cellsY()) * 0.5f;
+    const float pos2DRx = static_cast<float>(substrate2D_.cellsX()) * 0.5f;
+    const float pos2DRy = pos2DLy;
+    const bool use2D = (topology_ == Topology::Torus2D);
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -328,16 +399,29 @@ void Voice::renderBlockStereo(float* outL, float* outR, int numSamples) noexcept
             lfoValues_[static_cast<std::size_t>(li)] = lfos_[static_cast<std::size_t>(li)].tick();
         }
         agents_.setVoiceGain(ampEnv_.tick());
-        agents_.processOneSample(substrate_, sampleRate_);
-        substrate_.step();
 
-        const float rawL = substrate_.read(posL);
+        float rawL = 0.0f;
+        float rawR = 0.0f;
+        if (use2D)
+        {
+            agents_.processOneSample(substrate2D_, sampleRate_);
+            substrate2D_.step();
+            rawL = substrate2D_.read(pos2DLx, pos2DLy);
+            rawR = substrate2D_.read(pos2DRx, pos2DRy);
+        }
+        else
+        {
+            agents_.processOneSample(substrate_, sampleRate_);
+            substrate_.step();
+            rawL = substrate_.read(posL);
+            rawR = substrate_.read(posR);
+        }
+
         const float blockedL = rawL - prevInL + a * prevOutL;
         prevInL = rawL;
         prevOutL = blockedL;
         outL[i] = softClip(kOutputPreGain * blockedL) * stealRampGain_;
 
-        const float rawR = substrate_.read(posR);
         const float blockedR = rawR - prevInR + a * prevOutR;
         prevInR = rawR;
         prevOutR = blockedR;

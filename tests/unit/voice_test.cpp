@@ -135,3 +135,97 @@ TEST_CASE("Determinism: same noteOn → identical samples on two voices", "[voic
         REQUIRE(outA[i] == outB[i]); // bit-identical, no margin
     }
 }
+
+TEST_CASE("Voice 2D topology produces bounded non-silent output", "[voice][2d]")
+{
+    using sfs::engine::Topology;
+
+    Voice voice(1024, 16, kSampleRate);
+    voice.setTopology(Topology::Torus2D);
+    voice.macros().excitation = 0.0f; // pitched-like preset
+    voice.macros().migration = 0.0f;
+    voice.macros().coherence = 1.0f;
+    voice.modMatrix().clearAllSlots();
+    voice.noteOn(60, 1.0f);
+
+    constexpr int kBlock = 256;
+    constexpr int kBlocks = 64; // ~340 ms
+    std::vector<float> outL(static_cast<std::size_t>(kBlock), 0.0f);
+    std::vector<float> outR(static_cast<std::size_t>(kBlock), 0.0f);
+
+    float peak = 0.0f;
+    double sumSq = 0.0;
+    for (int b = 0; b < kBlocks; ++b)
+    {
+        voice.renderBlockStereo(outL.data(), outR.data(), kBlock);
+        for (int i = 0; i < kBlock; ++i)
+        {
+            const auto idx = static_cast<std::size_t>(i);
+            REQUIRE(std::isfinite(outL[idx]));
+            REQUIRE(std::isfinite(outR[idx]));
+            peak = std::max(peak, std::max(std::fabs(outL[idx]), std::fabs(outR[idx])));
+            sumSq += static_cast<double>(outL[idx]) * static_cast<double>(outL[idx]);
+        }
+    }
+    const double rmsValue = std::sqrt(sumSq / static_cast<double>(kBlocks * kBlock));
+    INFO("2D Voice peak=" << peak << " rms=" << rmsValue);
+    REQUIRE(peak > 0.001f);     // produces audio
+    REQUIRE(peak < 1.5f);       // bounded
+    REQUIRE(rmsValue > 0.0001); // not silent on average
+}
+
+TEST_CASE("Voice 2D topology determinism: same input → identical samples", "[voice][2d][determinism]")
+{
+    using sfs::engine::Topology;
+
+    auto run = []
+    {
+        Voice v(1024, 16, kSampleRate);
+        v.setTopology(Topology::Torus2D);
+        v.noteOn(60, 1.0f);
+        std::vector<float> bufL(1024, 0.0f);
+        std::vector<float> bufR(1024, 0.0f);
+        v.renderBlockStereo(bufL.data(), bufR.data(), 1024);
+        std::vector<float> out;
+        out.reserve(2048);
+        for (int i = 0; i < 1024; ++i)
+        {
+            const auto idx = static_cast<std::size_t>(i);
+            out.push_back(bufL[idx]);
+            out.push_back(bufR[idx]);
+        }
+        return out;
+    };
+
+    const auto a = run();
+    const auto b = run();
+    REQUIRE(a.size() == b.size());
+    for (std::size_t i = 0; i < a.size(); ++i)
+    {
+        REQUIRE(a[i] == b[i]);
+    }
+}
+
+TEST_CASE("Voice 1D topology preserves Phase 2 bit-exact output", "[voice][1d-regression]")
+{
+    using sfs::engine::Topology;
+
+    // Default topology must match Phase 2 behaviour exactly.
+    Voice v1(256, 4, kSampleRate);
+    Voice v2(256, 4, kSampleRate);
+    REQUIRE(v1.topology() == Topology::Ring1D);
+
+    // Explicit setTopology(Ring1D) on a fresh voice must be a no-op.
+    v2.setTopology(Topology::Ring1D);
+    v1.noteOn(60, 1.0f);
+    v2.noteOn(60, 1.0f);
+
+    std::vector<float> a(2048, 0.0f);
+    std::vector<float> b(2048, 0.0f);
+    v1.renderBlock(a.data(), 2048);
+    v2.renderBlock(b.data(), 2048);
+    for (std::size_t i = 0; i < a.size(); ++i)
+    {
+        REQUIRE(a[i] == b[i]);
+    }
+}

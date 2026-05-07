@@ -29,7 +29,8 @@
 namespace sfs::engine::substrate
 {
 class Substrate1D;
-}
+class Substrate2D;
+} // namespace sfs::engine::substrate
 
 namespace sfs::engine::agents
 {
@@ -47,7 +48,8 @@ enum class AgentShape : std::uint8_t
 
 struct Agent
 {
-    float position = 0.0f;            // substrate cell position [0, N), continuous
+    float position = 0.0f;            // 1D / 2D-X substrate cell position [0, N), continuous
+    float positionY = 0.0f;           // 2D-only Y position [0, Ny). Ignored in 1D mode.
     float frequency = 440.0f;         // base frequency in Hz
     float phase = 0.0f;               // current phase in [0, 1) cycles (NOT radians)
     float amplitude = 1.0f;           // [0, 1]
@@ -113,6 +115,13 @@ public:
     // MIGRATION fan-out (sfs-spec/03 §5).
     void processOneSample(sfs::engine::substrate::Substrate1D& substrate, float sampleRate) noexcept;
 
+    // 2D overload — reads / deposits using (position, positionY) into a
+    // Substrate2D. Other behaviour identical to the 1D path: bend,
+    // generate, deposit, advance phase, update position. Migration drifts
+    // the X axis only (positionY is fixed per noteOn for now); 2D-aware
+    // migration is a Phase 4+ task.
+    void processOneSample(sfs::engine::substrate::Substrate2D& substrate, float sampleRate) noexcept;
+
     [[nodiscard]] int activeCount() const noexcept { return activeCount_; }
 
     // Phase 2 voice-level amplitude gain. Voice writes the per-sample
@@ -134,6 +143,12 @@ public:
     // Convenience: spread N agents at evenly spaced substrate positions
     // (Phase 1 placeholder; Phase 2 reads from agent.shape_distribution).
     void layoutEvenly(int substrateCellCount) noexcept;
+
+    // 2D layout — distribute agents across the (cellsX, cellsY) grid in
+    // a row-major pattern. Each agent gets a unique (position, positionY)
+    // so deposits don't all stack at one site. Used by Voice when the
+    // topology is 2D.
+    void layoutEvenly2D(int cellsX, int cellsY) noexcept;
 
 private:
     int activeCount_ = 0;

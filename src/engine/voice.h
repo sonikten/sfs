@@ -18,11 +18,21 @@
 #include "engine/macros/macros.h"
 #include "engine/mod_matrix/mod_matrix.h"
 #include "engine/substrate/substrate_1d.h"
+#include "engine/substrate/substrate_2d.h"
 
 #include <array>
+#include <cstdint>
 
 namespace sfs::engine
 {
+
+// Substrate topology selector. Phase 3 §9 step 4 introduces 2D — the
+// 1D ring stays as the default (Phase 2 behaviour preserved bit-exact).
+enum class Topology : std::uint8_t
+{
+    Ring1D = 0, // Substrate1D, 1024 cells
+    Torus2D = 1 // Substrate2D, 32×32 cells (same total cell count)
+};
 
 class Voice
 {
@@ -60,8 +70,17 @@ public:
     // the audio thread of a real host.
     [[nodiscard]] substrate::Substrate1D& substrate() noexcept { return substrate_; }
     [[nodiscard]] const substrate::Substrate1D& substrate() const noexcept { return substrate_; }
+    [[nodiscard]] substrate::Substrate2D& substrate2D() noexcept { return substrate2D_; }
+    [[nodiscard]] const substrate::Substrate2D& substrate2D() const noexcept { return substrate2D_; }
     [[nodiscard]] agents::AgentPool& agents() noexcept { return agents_; }
     [[nodiscard]] const agents::AgentPool& agents() const noexcept { return agents_; }
+
+    // Topology selector. Default is Ring1D — Phase 2 bit-exact behaviour.
+    // Switching to Torus2D resets BOTH substrates and re-lays the agents
+    // on a 2D grid; switch on a non-active voice (or expect a brief
+    // transient as the new substrate wakes up).
+    void setTopology(Topology t) noexcept;
+    [[nodiscard]] Topology topology() const noexcept { return topology_; }
 
     [[nodiscard]] sfs::engine::envelope::Adsr& ampEnv() noexcept { return ampEnv_; }
     [[nodiscard]] const sfs::engine::envelope::Adsr& ampEnv() const noexcept { return ampEnv_; }
@@ -109,6 +128,8 @@ private:
     applyModMatrix(const sfs::engine::macros::MacroValues& base) const noexcept;
 
     substrate::Substrate1D substrate_;
+    substrate::Substrate2D substrate2D_;
+    Topology topology_ = Topology::Ring1D;
     agents::AgentPool agents_;
     sfs::engine::envelope::Adsr ampEnv_;
     std::array<sfs::engine::lfo::Lfo, kLfoCount> lfos_{};
