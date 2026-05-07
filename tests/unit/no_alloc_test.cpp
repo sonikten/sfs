@@ -109,6 +109,8 @@ TEST_CASE("Voice::renderBlock makes no allocations after the first warm-up call"
         voice.renderBlock(out.data(), kSamples);
     }
 
+    std::uint64_t finalCalls = 0;
+    std::uint64_t finalBytes = 0;
     {
         AllocGuard guard;
         // Render 100 blocks under the guard.
@@ -116,21 +118,16 @@ TEST_CASE("Voice::renderBlock makes no allocations after the first warm-up call"
         {
             voice.renderBlock(out.data(), kSamples);
         }
-        // Phase 1 acceptance: substrate's Phase A buffer is allocated each
-        // call — known issue, captured as a journal note. Bound the count so
-        // future regressions (someone adding `std::string +=` in the loop,
-        // for example) are still caught loudly.
-        CAPTURE(guard.calls(), guard.bytes());
-        // Phase 2: substrate's vNewBuf is a member, VoiceManager's scratch
-        // buffers are members, all engine state is in struct/array members.
-        // Empirical observation: 4 allocs / ~4 KB across 100 blocks come
-        // from incidental infrastructure (likely Catch2 internals leaking
-        // through the global operator new override); bound at ≤ 10 / 8 KB
-        // so any real regression (e.g. someone adding a per-block vector)
-        // would still trip the guard.
-        REQUIRE(guard.calls() <= 10);
-        REQUIRE(guard.bytes() < 8192);
+        finalCalls = guard.calls();
+        finalBytes = guard.bytes();
     }
+    // REQUIRE runs OUTSIDE the AllocGuard scope so Catch2's own allocation
+    // (string formatting, etc., which differs across platforms) doesn't
+    // count toward the engine's budget. Bound at ≤ 10 / 8 KB so any real
+    // regression (e.g. someone adding a per-block vector) still trips it.
+    CAPTURE(finalCalls, finalBytes);
+    REQUIRE(finalCalls <= 10);
+    REQUIRE(finalBytes < 8192);
 }
 
 TEST_CASE("VoiceManager::renderBlockStereo makes no allocations after warm-up", "[voice_manager][no-alloc]")
@@ -150,6 +147,8 @@ TEST_CASE("VoiceManager::renderBlockStereo makes no allocations after warm-up", 
         vm.renderBlockStereo(outL.data(), outR.data(), kSamples);
     }
 
+    std::uint64_t finalCalls = 0;
+    std::uint64_t finalBytes = 0;
     {
         AllocGuard guard;
         // Render 100 blocks under the guard.
@@ -157,9 +156,11 @@ TEST_CASE("VoiceManager::renderBlockStereo makes no allocations after warm-up", 
         {
             vm.renderBlockStereo(outL.data(), outR.data(), kSamples);
         }
-        CAPTURE(guard.calls(), guard.bytes());
-        // Phase 2: same near-zero bound as the Voice case above.
-        REQUIRE(guard.calls() <= 10);
-        REQUIRE(guard.bytes() < 8192);
+        finalCalls = guard.calls();
+        finalBytes = guard.bytes();
     }
+    // REQUIRE outside guard scope — see Voice test for rationale.
+    CAPTURE(finalCalls, finalBytes);
+    REQUIRE(finalCalls <= 10);
+    REQUIRE(finalBytes < 8192);
 }
