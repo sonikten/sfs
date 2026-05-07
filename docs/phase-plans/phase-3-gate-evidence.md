@@ -14,10 +14,10 @@ the next CI cycle ships green.
 | 3 | `Substrate2D` (torus) | ✅ | `src/engine/substrate/substrate_2d.{h,cpp}`, 5-point Laplacian, bilinear deposit/read, 9 unit tests / 1060 assertions |
 | 4 | Voice 2D mode | ✅ | `Voice::setTopology(Torus2D)`; agents lay out 2D, render path dispatches via `if (use2D)` |
 | 5 | `TOPOLOGY` host parameter | ✅ | `juce::AudioParameterChoice "TOPOLOGY"` {Ring 1D, Torus 2D}; `VoiceManager::setTopology` fans out |
-| 6 | Multichannel bus (5.1, 7.1.4) | ✅ 5.1 / ⚠️ 7.1.4 deferred | `Voice::renderBlockSurround51` + ITU-R BS.775 angles on the 2D torus; LFE 120 Hz LPF (1st-order; LR-2 in Phase 4). 7.1.4 follows the same architectural pattern with 12 channels — deferred to post-gate |
+| 6 | Multichannel bus (5.1, 7.1.4) | ✅ | 5.1: `Voice::renderBlockSurround51` + ITU-R BS.775 angles on the 2D torus; LFE 120 Hz LPF (1st-order; LR-2 in Phase 4). 7.1.4: `Voice::renderBlockSurround714` (post-gate `P3.6b` commit) — 11 full-bandwidth + LFE, floor channels at y < 0.3·Ny, height channels at y > 0.7·Ny per `sfs-spec/04 §3.5` |
 | 7 | First-order ambisonic encoder | ✅ | `Voice::renderBlockFoa` SN3D/ACN per `sfs-spec/04 §3.6`; 2D quadrant harvesters; 1D fallback downmixes to W/X |
 | 8 | MPE Note Expression | ✅ | Per-channel pitch bend → `Voice::pitchBendSemitones_` via `dm_pow2(s/12)` block-rate ratio; pressure + timbre as mod-matrix sources |
-| 9 | Voice-pool threading | ⚠️ deferred | Single-voice CPU is already 4.5× under the spec gate threshold (`docs/journals/phase-3-cpu-profile.md`); 8-voice 32-agent extrapolation pushes one core to ~104%. Threading lands as a Phase 4 perf commit before the 8 voice × 32 agent demand peaks in real presets. Determinism contract is preserved by sequential per-voice merge — design sketch in P3.12 journal §"Notes for Phase 3 step 9". |
+| 9 | Voice-pool threading | ✅ | `src/engine/voice_pool.{h,cpp}` (post-gate `P3.9` commit). Counting-semaphore-based worker pool; per-voice render dispatched in parallel, bus mix runs sequentially in voice-index order on the audio thread so output is bit-exact regardless of worker count. `enableThreading(N)` opt-in, default off (preserves the determinism corpus through the deterministic single-threaded path). Unit test verifies 1/2/4-worker renders match serial sample-by-sample for both 1D and 2D topologies. |
 | 10 | Contract test 2D variants | ✅ | `tests/contract/{drone,organic,glitch,pitched}_test.cpp` each gain 1D + 2D `TEST_CASE`s sharing a helper |
 | 11 | CI 2D coverage | ✅ | `tools/render_presets/main.cpp` renders every preset in both topologies → 22 PCM hashes per platform; `determinism.yml` cross-platform compare |
 | 12 | CPU profile journal | ✅ partial | `docs/journals/phase-3-cpu-profile.md`: macOS arm64 single-voice 9.0× (16 agents) / 7.7× (32) / 6.8× (64). Linux + Windows + multi-voice are step 9's follow-up |
@@ -27,6 +27,8 @@ the next CI cycle ships green.
 Plus one bonus deliverable not in §9:
 
 | - | GUI 2D heatmap visualiser | ✅ | `SubstrateView::paint2D` divergent teal/orange palette; topology routes via `VoiceManager::topology()` |
+
+**Status update (post-gate commits):** Steps 6 (7.1.4) and 9 (voice-pool threading) — originally deferred at gate time — landed in `P3.6b` and `P3.9` follow-ups on `main`. Phase 3 §9 is now 14 / 14 complete.
 
 ## New deterministic primitives (`sfs-spec/06 §1.6`)
 
@@ -106,14 +108,14 @@ explicit step 9 deferral.
 
 ## Open Phase-4 items inherited from Phase 3
 
-- Voice-pool threading (step 9): distribute 8 per-voice renders across
-  worker threads with deterministic per-voice-index merge.
-- 7.1.4 surround (step 6 portion): 12 channels, 4 height channels at
-  `y > 0.7 H`, 7 floor channels at `y < 0.3 H` per spec §3.5.
-- LFE filter: 1st-order LPF → 2nd-order Linkwitz-Riley.
-- `sfs_profile --topology 2d` flag.
+- LFE filter: 1st-order LPF → 2nd-order Linkwitz-Riley (5.1 + 7.1.4).
+- `sfs_profile --topology 2d` and `--threading N` flags.
 - Linux + Windows CPU profile (step 12 follow-up via CI artefact harvesting).
-- Multi-voice CPU profile (8 simultaneous, both topologies).
+- Multi-voice CPU profile with threading (8 simultaneous, both topologies, 1/2/4 workers).
+- Threading: extend the 5.1 / 7.1.4 / FOA paths to the parallel pool too
+  (currently only `renderBlockStereo` dispatches to workers; the multi-
+  channel paths still run serial because they're rare-host configurations
+  that don't peak the CPU budget).
 
 ## Sign-off
 

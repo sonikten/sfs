@@ -500,6 +500,96 @@ TEST_CASE("FOA render: 1D voice downmixes stereo into W/X (Y=Z=0)", "[voice_mana
     REQUIRE(peakZ == 0.0f);
 }
 
+TEST_CASE("Voice-pool threading: parallel render is bit-exact with serial", "[voice_manager][threading][determinism]")
+{
+    // The whole point of voice-pool threading is to be a perf optimisation
+    // that doesn't change a single output bit. Render the same chord with
+    // threading off and threading on, assert the PCM matches sample-by-
+    // sample. Repeats with topology = 2D so the heavier render path is
+    // covered too.
+    constexpr int kHoldSamples = kSampleRate / 4; // 0.25 s
+    constexpr int kBlock = 256;
+
+    auto renderChord = [&](VoiceManager& mgr, std::vector<float>& outL, std::vector<float>& outR)
+    {
+        // Identical setup, identical 3-note chord.
+        mgr.macros().tension = 0.5f;
+        mgr.macros().damping = 0.3f;
+        mgr.macros().density = 0.6f;
+        mgr.macros().migration = 0.2f;
+        mgr.macros().coherence = 0.8f;
+        mgr.macros().excitation = 0.3f;
+        mgr.noteOn(60, 1.0f);
+        mgr.noteOn(64, 1.0f);
+        mgr.noteOn(67, 1.0f);
+        for (int written = 0; written < kHoldSamples; written += kBlock)
+        {
+            const int n = std::min(kBlock, kHoldSamples - written);
+            mgr.renderBlockStereo(outL.data() + written, outR.data() + written, n);
+        }
+    };
+
+    // Serial reference.
+    VoiceManager serial(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+    std::vector<float> sL(static_cast<std::size_t>(kHoldSamples), 0.0f);
+    std::vector<float> sR(static_cast<std::size_t>(kHoldSamples), 0.0f);
+    renderChord(serial, sL, sR);
+
+    // Threaded — every worker count from 1 to 4 must match.
+    for (int workers : {1, 2, 4})
+    {
+        VoiceManager parallel(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+        parallel.enableThreading(workers);
+        REQUIRE(parallel.threadingEnabled());
+        REQUIRE(parallel.numWorkers() == workers);
+
+        std::vector<float> pL(static_cast<std::size_t>(kHoldSamples), 0.0f);
+        std::vector<float> pR(static_cast<std::size_t>(kHoldSamples), 0.0f);
+        renderChord(parallel, pL, pR);
+
+        for (int i = 0; i < kHoldSamples; ++i)
+        {
+            CAPTURE(workers, i);
+            REQUIRE(sL[static_cast<std::size_t>(i)] == pL[static_cast<std::size_t>(i)]);
+            REQUIRE(sR[static_cast<std::size_t>(i)] == pR[static_cast<std::size_t>(i)]);
+        }
+    }
+}
+
+TEST_CASE("Voice-pool threading: 2D topology bit-exact with serial", "[voice_manager][threading][determinism]")
+{
+    constexpr int kHoldSamples = kSampleRate / 8; // 0.125 s — 2D is heavier
+    constexpr int kBlock = 256;
+    auto renderChord = [&](VoiceManager& mgr, std::vector<float>& outL, std::vector<float>& outR)
+    {
+        mgr.setTopology(sfs::engine::Topology::Torus2D);
+        mgr.noteOn(60, 1.0f);
+        mgr.noteOn(64, 0.8f);
+        for (int written = 0; written < kHoldSamples; written += kBlock)
+        {
+            const int n = std::min(kBlock, kHoldSamples - written);
+            mgr.renderBlockStereo(outL.data() + written, outR.data() + written, n);
+        }
+    };
+
+    VoiceManager serial(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+    std::vector<float> sL(static_cast<std::size_t>(kHoldSamples), 0.0f);
+    std::vector<float> sR(static_cast<std::size_t>(kHoldSamples), 0.0f);
+    renderChord(serial, sL, sR);
+
+    VoiceManager parallel(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+    parallel.enableThreading(2);
+    std::vector<float> pL(static_cast<std::size_t>(kHoldSamples), 0.0f);
+    std::vector<float> pR(static_cast<std::size_t>(kHoldSamples), 0.0f);
+    renderChord(parallel, pL, pR);
+
+    for (int i = 0; i < kHoldSamples; ++i)
+    {
+        REQUIRE(sL[static_cast<std::size_t>(i)] == pL[static_cast<std::size_t>(i)]);
+        REQUIRE(sR[static_cast<std::size_t>(i)] == pR[static_cast<std::size_t>(i)]);
+    }
+}
+
 TEST_CASE("MPE pitch bend = 0 produces bit-exact output vs. legacy noteOn", "[voice_manager][mpe][determinism]")
 {
     // Bypass guarantee: when no MPE pitch bend is in flight the render

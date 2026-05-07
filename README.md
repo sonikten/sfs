@@ -14,15 +14,15 @@ What's shipping today:
 - **Macros**: TENSION, DAMPING, DENSITY, MIGRATION, COHERENCE, EXCITATION + topology selector, all host-automated and block-rate smoothed.
 - **Modulation matrix**: 16 slots, 10 sources (LFOs, envelopes, MIDI CC1, key velocity, MPE pressure / timbre, per-note random), 6 destinations.
 - **MPE Note Expression**: per-channel pitch bend (±48 st), pressure, and timbre (CC74).
-- **Output layouts**: mono, stereo, 4-channel ambisonic (W, X, Y, Z=0), and 5.1 surround (ITU-R BS.775 angles on the 2D torus). 7.1.4 is Phase 4.
+- **Output layouts**: mono, stereo, 4-channel ambisonic (W, X, Y, Z=0), 5.1 surround (ITU-R BS.775 angles on the 2D torus), and 7.1.4 immersive (floor channels at y < 0.3·Ny, height channels at y > 0.7·Ny on the 2D torus).
+- **Optional voice-pool threading**: opt-in via `VoiceManager::enableThreading(N)` to distribute the 8 per-voice renders across N workers (default off; bit-exact identical to serial regardless of worker count).
 - **GUI** (Phase 2/3 diagnostic form): real-time substrate visualiser (1D scope and 2D heatmap) plus auto-generated knob panel for every host parameter.
 
 What's deferred:
 
 - Curated GUI layout + preset browser (Phase 4).
 - 128 factory presets (Phase 4 sound design).
-- Voice-pool threading for high-polyphony 2D loads (Phase 4 — single-voice CPU is currently 4.5× under spec budget; threading is a perf optimisation, not a correctness gap).
-- 7.1.4 surround, Möbius / Klein topologies, higher-order ambisonics, AU / AAX wrappers.
+- Möbius / Klein topologies, higher-order ambisonics, AU / AAX wrappers.
 
 See `docs/phase-plans/phase-3-gate-evidence.md` for the full Phase 3 deliverable matrix.
 

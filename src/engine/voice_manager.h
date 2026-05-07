@@ -18,9 +18,11 @@
 #pragma once
 
 #include "engine/voice.h"
+#include "engine/voice_pool.h"
 
 #include <array>
 #include <cstdint>
+#include <memory>
 
 namespace sfs::engine
 {
@@ -31,6 +33,22 @@ public:
     static constexpr int kMaxVoices = 8;
 
     VoiceManager(int substrateCells, int agentCount, float sampleRate);
+
+    // Phase 3 §9 step 9 — voice-pool threading. Default is single-threaded
+    // (Phase 2 behaviour, bit-exact preserved). Calling enableThreading(N)
+    // creates an N-worker pool; per-voice renders run in parallel, the
+    // bus mix runs sequentially in voice-index order on the audio thread
+    // — so output is bit-exact regardless of worker count. Pass 0 to
+    // disable threading (release the pool). Worker count clamps to
+    // [0, 8]; typical values are 2-4 on a 4-core host.
+    //
+    // Threading is OFF by default so the determinism corpus in CI runs
+    // through the deterministic single-threaded path; threaded renders
+    // are validated by the unit test that asserts they produce the same
+    // bits as the single-threaded path.
+    void enableThreading(int numWorkers);
+    [[nodiscard]] bool threadingEnabled() const noexcept { return pool_ != nullptr; }
+    [[nodiscard]] int numWorkers() const noexcept { return pool_ ? pool_->numWorkers() : 0; }
 
     // MIDI dispatch. The (midiNote, velocity) overload is the legacy
     // mono-channel path used by tests + non-MPE hosts. The MPE-aware
@@ -165,6 +183,16 @@ private:
     std::vector<float> scratchFoaZ_;
     std::array<std::vector<float>, 6> scratch51_;   // L, R, C, LFE, Ls, Rs
     std::array<std::vector<float>, 12> scratch714_; // L, R, C, LFE, Ls, Rs, Lr, Rr, Tfl, Tfr, Trl, Trr
+
+    // Per-voice scratch for the threaded render paths. When threading
+    // is enabled, workers write the per-voice render result into
+    // perVoiceScratch_[voiceIdx][channelIdx] and the audio thread sums
+    // them into the bus output in voice-index order.
+    //   Layout: [voiceIdx][channelIdx][sample]
+    //   Sized for the worst case 12-channel render (7.1.4).
+    static constexpr int kMaxVoiceScratchChannels = 12;
+    std::array<std::array<std::vector<float>, kMaxVoiceScratchChannels>, kMaxVoices> perVoiceScratch_{};
+    std::unique_ptr<VoicePool> pool_; // null = single-threaded path
 };
 
 } // namespace sfs::engine

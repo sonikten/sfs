@@ -57,6 +57,31 @@ VoiceManager::VoiceManager(int substrateCells, int agentCount, float sampleRate)
     {
         v = 0.5f;
     }
+
+    // Per-voice scratch for the threaded render paths. Sized for the
+    // worst case 12-channel render (7.1.4); only the channels actually
+    // used by the active layout are touched at render time.
+    for (auto& voiceScratch : perVoiceScratch_)
+    {
+        for (auto& chBuf : voiceScratch)
+        {
+            chBuf.assign(static_cast<std::size_t>(kMaxBlockSize), 0.0f);
+        }
+    }
+}
+
+void VoiceManager::enableThreading(int numWorkers)
+{
+    if (numWorkers <= 0)
+    {
+        pool_.reset();
+        return;
+    }
+    if (numWorkers > kMaxVoices)
+    {
+        numWorkers = kMaxVoices;
+    }
+    pool_ = std::make_unique<VoicePool>(numWorkers);
 }
 
 int VoiceManager::findFreeVoice() const noexcept
@@ -387,41 +412,109 @@ void VoiceManager::renderBlockStereo(float* outL, float* outR, int numSamples) n
     smoothedMacros_.excitation += (macroTargets_.excitation - smoothedMacros_.excitation) * alpha;
     smoothedMacros_.clampInPlace();
 
-    for (auto& s : slots_)
+    if (pool_ != nullptr)
     {
-        // Skip voices that aren't producing sound: not gated AND no
-        // recent activity (the substrate has decayed; we trust γ to have
-        // killed it within ~100 ms of noteOff).
-        // Simpler heuristic for Phase 2: render every voice that's gated
-        // OR was recently active. A cleaner version uses an idle-sample
-        // counter on the voice; deferred.
-        const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
-        if (!shouldRender)
+        // Parallel path. Per-voice render runs on workers; merge happens
+        // sequentially in voice-index order so the output is bit-exact
+        // with the serial path.
+        struct StereoArgs
         {
-            continue;
+            Voice* voice;
+            float* outL;
+            float* outR;
+            int n;
+        };
+        std::array<StereoArgs, kMaxVoices> args{};
+        int numActive = 0;
+        for (int v = 0; v < kMaxVoices; ++v)
+        {
+            auto& s = slots_[static_cast<std::size_t>(v)];
+            auto& j = pool_->job(v);
+            const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
+            if (!shouldRender)
+            {
+                j.active.store(false, std::memory_order_release);
+                continue;
+            }
+            s.voice.macros() = smoothedMacros_;
+            s.voice.setUniformShape(uniformShape_);
+            s.voice.setMidiCc1(midiCc1_);
+            args[static_cast<std::size_t>(v)] = StereoArgs{&s.voice,
+                                                           perVoiceScratch_[static_cast<std::size_t>(v)][0].data(),
+                                                           perVoiceScratch_[static_cast<std::size_t>(v)][1].data(),
+                                                           numSamples};
+            j.userData = &args[static_cast<std::size_t>(v)];
+            j.work = [](void* ud) noexcept
+            {
+                auto* a = static_cast<StereoArgs*>(ud);
+                a->voice->renderBlockStereo(a->outL, a->outR, a->n);
+            };
+            j.claimed.store(false, std::memory_order_release);
+            j.done.store(false, std::memory_order_release);
+            j.active.store(true, std::memory_order_release);
+            ++numActive;
         }
-
-        // Push the shared macros snapshot + shape selection into this voice.
-        s.voice.macros() = smoothedMacros_;
-        s.voice.setUniformShape(uniformShape_);
-        s.voice.setMidiCc1(midiCc1_);
-
-        s.voice.renderBlockStereo(bufL, bufR, numSamples);
-        for (int i = 0; i < numSamples; ++i)
+        pool_->submit(numActive);
+        for (int v = 0; v < kMaxVoices; ++v)
         {
-            outL[i] += bufL[i];
-            outR[i] += bufR[i];
+            auto& s = slots_[static_cast<std::size_t>(v)];
+            auto& j = pool_->job(v);
+            if (!j.active.load(std::memory_order_acquire))
+            {
+                continue;
+            }
+            pool_->waitFor(v);
+            const float* const sL = perVoiceScratch_[static_cast<std::size_t>(v)][0].data();
+            const float* const sR = perVoiceScratch_[static_cast<std::size_t>(v)][1].data();
+            for (int i = 0; i < numSamples; ++i)
+            {
+                outL[i] += sL[i];
+                outR[i] += sR[i];
+            }
+            if (!s.voice.isGated() && s.midiNote >= 0)
+            {
+                s.midiNote = -1;
+            }
         }
-
-        // Voice "completes" — frees up the slot — when it has fully
-        // decayed. Phase 2 simplification: clear the midiNote tag once
-        // the voice is no longer gated AND has been ungated for at
-        // least one block. The substrate's γ handles the actual decay
-        // tail; the slot just becomes available for stealing first.
-        if (!s.voice.isGated() && s.midiNote >= 0)
+    }
+    else
+    {
+        for (auto& s : slots_)
         {
-            // Mark as released; eligible for re-allocation on next noteOn.
-            s.midiNote = -1;
+            // Skip voices that aren't producing sound: not gated AND no
+            // recent activity (the substrate has decayed; we trust γ to have
+            // killed it within ~100 ms of noteOff).
+            // Simpler heuristic for Phase 2: render every voice that's gated
+            // OR was recently active. A cleaner version uses an idle-sample
+            // counter on the voice; deferred.
+            const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
+            if (!shouldRender)
+            {
+                continue;
+            }
+
+            // Push the shared macros snapshot + shape selection into this voice.
+            s.voice.macros() = smoothedMacros_;
+            s.voice.setUniformShape(uniformShape_);
+            s.voice.setMidiCc1(midiCc1_);
+
+            s.voice.renderBlockStereo(bufL, bufR, numSamples);
+            for (int i = 0; i < numSamples; ++i)
+            {
+                outL[i] += bufL[i];
+                outR[i] += bufR[i];
+            }
+
+            // Voice "completes" — frees up the slot — when it has fully
+            // decayed. Phase 2 simplification: clear the midiNote tag once
+            // the voice is no longer gated AND has been ungated for at
+            // least one block. The substrate's γ handles the actual decay
+            // tail; the slot just becomes available for stealing first.
+            if (!s.voice.isGated() && s.midiNote >= 0)
+            {
+                // Mark as released; eligible for re-allocation on next noteOn.
+                s.midiNote = -1;
+            }
         }
     }
 
