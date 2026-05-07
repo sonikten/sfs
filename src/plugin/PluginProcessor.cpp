@@ -248,26 +248,59 @@ void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     // Phase 2 simplification: events apply at block boundaries (5 ms
     // granularity at 256-sample blocks @ 48 kHz). Sample-accurate
     // dispatch lands as part of step 12.
+    //
+    // Phase 3 §9 step 8 — MPE Note Expression. We don't formally toggle
+    // MPE zones (the spec's MPE 1.0 RPN messages); instead any incoming
+    // pitch-bend / channel pressure / CC74 message is routed through the
+    // VoiceManager's per-channel side table so MPE keyboards (typically
+    // sending one note per member channel 2-15) get per-note expression
+    // automatically. Non-MPE keyboards send everything on channel 1, in
+    // which case the channel side table behaves as global state.
+    constexpr float kMpePitchBendRangeSemis = 48.0f; // MPE default member-zone range
     for (const auto meta : midiMessages)
     {
         const auto& msg = meta.getMessage();
+        const int ch = msg.getChannel(); // 1-16, or 0 for sysex/non-channel
         if (msg.isNoteOn())
         {
-            voiceManager_->noteOn(msg.getNoteNumber(), msg.getFloatVelocity());
+            voiceManager_->noteOn(ch, msg.getNoteNumber(), msg.getFloatVelocity());
         }
         else if (msg.isNoteOff())
         {
-            voiceManager_->noteOff(msg.getNoteNumber());
+            voiceManager_->noteOff(ch, msg.getNoteNumber());
         }
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
         {
             voiceManager_->allNotesOff();
         }
-        else if (msg.isController() && msg.getControllerNumber() == 1)
+        else if (msg.isPitchWheel())
         {
-            // Mod wheel (CC1) — fed into the mod matrix as a Phase 2
-            // source. Normalised to [0, 1] from the MIDI 0..127 byte.
-            voiceManager_->setMidiCc1(static_cast<float>(msg.getControllerValue()) / 127.0f);
+            // 14-bit pitch bend [0, 16383] centred at 8192. Convert to
+            // semitones at the MPE default ±48 range; non-MPE hosts that
+            // configure narrower ranges can bend less than the full ±48
+            // — the audible effect is identical, just less throw.
+            const int raw = msg.getPitchWheelValue();
+            const float normalised = (static_cast<float>(raw) - 8192.0f) / 8192.0f;
+            voiceManager_->setChannelPitchBendSemitones(ch, normalised * kMpePitchBendRangeSemis);
+        }
+        else if (msg.isChannelPressure())
+        {
+            voiceManager_->setChannelPressure(ch, static_cast<float>(msg.getChannelPressureValue()) / 127.0f);
+        }
+        else if (msg.isController())
+        {
+            const int cc = msg.getControllerNumber();
+            const float v01 = static_cast<float>(msg.getControllerValue()) / 127.0f;
+            if (cc == 1)
+            {
+                // Mod wheel (CC1) — global mod-matrix source.
+                voiceManager_->setMidiCc1(v01);
+            }
+            else if (cc == 74)
+            {
+                // CC74 — MPE timbre / Y axis on Roli-style keyboards.
+                voiceManager_->setChannelTimbre(ch, v01);
+            }
         }
     }
 

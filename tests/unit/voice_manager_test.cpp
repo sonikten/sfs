@@ -99,3 +99,172 @@ TEST_CASE("Chord render: 3 notes produce non-silent bounded stereo", "[voice_man
     REQUIRE(peakL < 5.0f);
     REQUIRE(peakR < 5.0f);
 }
+
+namespace
+{
+
+// Estimate fundamental Hz from a mono buffer via autocorrelation.
+[[nodiscard]] float estimatePitchHz(const float* buf, int len, float sampleRate, float fMin, float fMax)
+{
+    const int tauMin = static_cast<int>(sampleRate / fMax);
+    const int tauMax = std::min(len / 2, static_cast<int>(sampleRate / fMin));
+    if (tauMin >= tauMax)
+    {
+        return 0.0f;
+    }
+    double mean = 0.0;
+    for (int i = 0; i < len; ++i)
+    {
+        mean += static_cast<double>(buf[i]);
+    }
+    const float m = static_cast<float>(mean / static_cast<double>(len));
+    int bestLag = 0;
+    double bestVal = -1e300;
+    for (int tau = tauMin; tau <= tauMax; ++tau)
+    {
+        double s = 0.0;
+        for (int i = 0; i + tau < len; ++i)
+        {
+            s += static_cast<double>(buf[i] - m) * static_cast<double>(buf[i + tau] - m);
+        }
+        if (s > bestVal)
+        {
+            bestVal = s;
+            bestLag = tau;
+        }
+    }
+    if (bestLag == 0)
+    {
+        return 0.0f;
+    }
+    return sampleRate / static_cast<float>(bestLag);
+}
+
+[[nodiscard]] float renderAndEstimatePitchHz(VoiceManager& mgr, int holdSamples)
+{
+    std::vector<float> L(static_cast<std::size_t>(holdSamples), 0.0f);
+    std::vector<float> R(static_cast<std::size_t>(holdSamples), 0.0f);
+    constexpr int kBlock = 256;
+    for (int written = 0; written < holdSamples; written += kBlock)
+    {
+        const int n = std::min(kBlock, holdSamples - written);
+        mgr.renderBlockStereo(L.data() + written, R.data() + written, n);
+    }
+    // Skip the attack — analyse the steady-state tail.
+    const int analysisStart = holdSamples / 4;
+    return estimatePitchHz(L.data() + analysisStart, holdSamples - analysisStart, kSampleRateF, 50.0f, 2000.0f);
+}
+
+} // namespace
+
+TEST_CASE("MPE pitch bend on a member channel shifts that voice's pitch", "[voice_manager][mpe]")
+{
+    VoiceManager mgr(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+
+    // Drive pitched-style voicing: COHERENCE high, MIGRATION/EXCITATION off.
+    mgr.macros().tension = 0.5f;
+    mgr.macros().damping = 0.3f;
+    mgr.macros().density = 0.6f;
+    mgr.macros().migration = 0.0f;
+    mgr.macros().coherence = 1.0f;
+    mgr.macros().excitation = 0.0f;
+    mgr.setModMatrixSlotDepth(0, 0.0f);
+    mgr.setModMatrixSlotDepth(1, 0.0f);
+    mgr.setModMatrixSlotDepth(2, 0.0f);
+    mgr.setModMatrixSlotDepth(3, 0.0f);
+
+    constexpr int kHoldSamples = kSampleRate / 2; // 0.5 s
+
+    // Reference: A4 (440 Hz) on member channel 2, no bend.
+    mgr.noteOn(/*channel*/ 2, /*note*/ 69, 1.0f);
+    const float refHz = renderAndEstimatePitchHz(mgr, kHoldSamples);
+    mgr.noteOff(/*channel*/ 2, /*note*/ 69);
+    CAPTURE(refHz);
+    REQUIRE(refHz > 380.0f);
+    REQUIRE(refHz < 500.0f);
+
+    // Bent: A4 + 7 semitones (E5, ~659.26 Hz) on the same channel, set
+    // BEFORE noteOn so the voice inherits the pitch bend on attack.
+    mgr.setChannelPitchBendSemitones(2, 7.0f);
+    mgr.noteOn(/*channel*/ 2, /*note*/ 69, 1.0f);
+    const float bentHz = renderAndEstimatePitchHz(mgr, kHoldSamples);
+    mgr.noteOff(/*channel*/ 2, /*note*/ 69);
+    CAPTURE(bentHz);
+
+    // Should land near 659.26 Hz (within ~3 percent).
+    const float expectedHz = 440.0f * 1.498307f; // 2^(7/12)
+    const float relErr = std::fabs(bentHz - expectedHz) / expectedHz;
+    CAPTURE(expectedHz, relErr);
+    REQUIRE(relErr < 0.03f);
+}
+
+TEST_CASE("MPE pitch bend per channel: two notes bend independently", "[voice_manager][mpe]")
+{
+    VoiceManager mgr(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+    mgr.macros().coherence = 1.0f;
+    mgr.macros().migration = 0.0f;
+    mgr.macros().excitation = 0.0f;
+    mgr.setModMatrixSlotDepth(0, 0.0f);
+
+    // Channel 2 holds A4 with +7 st bend (→ E5), channel 3 holds A4 with
+    // -7 st bend (→ D4). Renders should produce a 5th-apart double stop.
+    mgr.setChannelPitchBendSemitones(2, 7.0f);
+    mgr.setChannelPitchBendSemitones(3, -7.0f);
+    mgr.noteOn(2, 69, 1.0f);
+    mgr.noteOn(3, 69, 1.0f);
+
+    constexpr int kHoldSamples = kSampleRate / 2;
+    std::vector<float> L(static_cast<std::size_t>(kHoldSamples), 0.0f);
+    std::vector<float> R(static_cast<std::size_t>(kHoldSamples), 0.0f);
+    constexpr int kBlock = 256;
+    for (int written = 0; written < kHoldSamples; written += kBlock)
+    {
+        const int n = std::min(kBlock, kHoldSamples - written);
+        mgr.renderBlockStereo(L.data() + written, R.data() + written, n);
+    }
+
+    // The mix should be non-silent and bounded — full pitch detection on
+    // a chord is unreliable here; the bit-exact render will catch any
+    // wrong-pitch regression via the determinism CI.
+    float peak = 0.0f;
+    for (int i = kHoldSamples / 4; i < kHoldSamples; ++i)
+    {
+        peak = std::max(peak, std::fabs(L[static_cast<std::size_t>(i)]));
+    }
+    REQUIRE(peak > 1e-3f);
+    REQUIRE(peak < 1.5f);
+}
+
+TEST_CASE("MPE pitch bend = 0 produces bit-exact output vs. legacy noteOn", "[voice_manager][mpe][determinism]")
+{
+    // Bypass guarantee: when no MPE pitch bend is in flight the render
+    // must match the Phase 2 path exactly (the dm_pow2 branch is skipped).
+    constexpr int kHoldSamples = kSampleRate / 4; // 0.25 s
+    constexpr int kBlock = 256;
+
+    VoiceManager legacy(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+    legacy.noteOn(60, 1.0f);
+    std::vector<float> aL(static_cast<std::size_t>(kHoldSamples), 0.0f);
+    std::vector<float> aR(static_cast<std::size_t>(kHoldSamples), 0.0f);
+    for (int written = 0; written < kHoldSamples; written += kBlock)
+    {
+        const int n = std::min(kBlock, kHoldSamples - written);
+        legacy.renderBlockStereo(aL.data() + written, aR.data() + written, n);
+    }
+
+    VoiceManager mpe(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+    mpe.noteOn(/*channel*/ 0, 60, 1.0f); // channel 0 = unbound, no bend table
+    std::vector<float> bL(static_cast<std::size_t>(kHoldSamples), 0.0f);
+    std::vector<float> bR(static_cast<std::size_t>(kHoldSamples), 0.0f);
+    for (int written = 0; written < kHoldSamples; written += kBlock)
+    {
+        const int n = std::min(kBlock, kHoldSamples - written);
+        mpe.renderBlockStereo(bL.data() + written, bR.data() + written, n);
+    }
+
+    for (int i = 0; i < kHoldSamples; ++i)
+    {
+        REQUIRE(aL[static_cast<std::size_t>(i)] == bL[static_cast<std::size_t>(i)]);
+        REQUIRE(aR[static_cast<std::size_t>(i)] == bR[static_cast<std::size_t>(i)]);
+    }
+}

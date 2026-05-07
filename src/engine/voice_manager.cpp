@@ -10,14 +10,14 @@ namespace sfs::engine
 
 VoiceManager::VoiceManager(int substrateCells, int agentCount, float sampleRate)
     : slots_{
-          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
-          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
-          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
-          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
-          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
-          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
-          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
-          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0},
+          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0, 0},
+          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0, 0},
+          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0, 0},
+          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0, 0},
+          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0, 0},
+          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0, 0},
+          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0, 0},
+          VoiceSlot{Voice{substrateCells, agentCount, sampleRate}, -1, 0, 0},
       },
       // smoothedMacros_ uses the same default field values as macroTargets_
       // (both default-initialise to MacroValues{}), so the first render
@@ -26,6 +26,11 @@ VoiceManager::VoiceManager(int substrateCells, int agentCount, float sampleRate)
       scratchL_(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
       scratchR_(static_cast<std::size_t>(kMaxBlockSize), 0.0f)
 {
+    // MPE timbre default is centred — MPE 1.0 §6.4 reset value.
+    for (auto& v : channelTimbre_)
+    {
+        v = 0.5f;
+    }
 }
 
 int VoiceManager::findFreeVoice() const noexcept
@@ -67,6 +72,11 @@ int VoiceManager::findStealVictim() const noexcept
 
 void VoiceManager::noteOn(int midiNote, float velocity)
 {
+    noteOn(/*midiChannel*/ 0, midiNote, velocity);
+}
+
+void VoiceManager::noteOn(int midiChannel, int midiNote, float velocity)
+{
     bool stealing = false;
     int idx = findFreeVoice();
     if (idx < 0)
@@ -84,7 +94,20 @@ void VoiceManager::noteOn(int midiNote, float velocity)
         slot.voice.noteOn(midiNote, velocity);
     }
     slot.midiNote = midiNote;
+    slot.midiChannel = midiChannel;
     slot.ageCounter = nextAge_++;
+
+    // Inherit MPE state from the side table (MPE 1.0 §6.4: pressure +
+    // pitch bend + timbre persist on the channel and apply immediately to
+    // any new note on that channel). channelPitchBendSemitones_[0] etc.
+    // are zero-init'd, so non-MPE callers (channel == 0) get neutral state.
+    if (midiChannel >= 0 && midiChannel <= kNumMidiChannels)
+    {
+        const auto cIdx = static_cast<std::size_t>(midiChannel);
+        slot.voice.setPitchBendSemitones(channelPitchBendSemitones_[cIdx]);
+        slot.voice.setMpePressure(channelPressure_[cIdx]);
+        slot.voice.setMpeTimbre(channelTimbre_[cIdx]);
+    }
 }
 
 void VoiceManager::noteOff(int midiNote)
@@ -98,6 +121,68 @@ void VoiceManager::noteOff(int midiNote)
             // s.midiNote stays set so noteOff(same note) twice doesn't double-
             // gate-off. It clears when the slot is reassigned (noteOn or steal).
             return;
+        }
+    }
+}
+
+void VoiceManager::noteOff(int midiChannel, int midiNote)
+{
+    // Channel-scoped match — required for MPE because the same note number
+    // may be held on multiple member channels simultaneously.
+    for (auto& s : slots_)
+    {
+        if (s.midiNote == midiNote && s.midiChannel == midiChannel && s.voice.isGated())
+        {
+            s.voice.noteOff();
+            return;
+        }
+    }
+}
+
+void VoiceManager::setChannelPitchBendSemitones(int midiChannel, float semitones) noexcept
+{
+    if (midiChannel < 0 || midiChannel > kNumMidiChannels)
+    {
+        return;
+    }
+    channelPitchBendSemitones_[static_cast<std::size_t>(midiChannel)] = semitones;
+    for (auto& s : slots_)
+    {
+        if (s.midiChannel == midiChannel && s.midiNote >= 0)
+        {
+            s.voice.setPitchBendSemitones(semitones);
+        }
+    }
+}
+
+void VoiceManager::setChannelPressure(int midiChannel, float pressure01) noexcept
+{
+    if (midiChannel < 0 || midiChannel > kNumMidiChannels)
+    {
+        return;
+    }
+    channelPressure_[static_cast<std::size_t>(midiChannel)] = pressure01;
+    for (auto& s : slots_)
+    {
+        if (s.midiChannel == midiChannel && s.midiNote >= 0)
+        {
+            s.voice.setMpePressure(pressure01);
+        }
+    }
+}
+
+void VoiceManager::setChannelTimbre(int midiChannel, float timbre01) noexcept
+{
+    if (midiChannel < 0 || midiChannel > kNumMidiChannels)
+    {
+        return;
+    }
+    channelTimbre_[static_cast<std::size_t>(midiChannel)] = timbre01;
+    for (auto& s : slots_)
+    {
+        if (s.midiChannel == midiChannel && s.midiNote >= 0)
+        {
+            s.voice.setMpeTimbre(timbre01);
         }
     }
 }

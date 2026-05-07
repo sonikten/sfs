@@ -32,10 +32,24 @@ public:
 
     VoiceManager(int substrateCells, int agentCount, float sampleRate);
 
-    // MIDI dispatch.
+    // MIDI dispatch. The (midiNote, velocity) overload is the legacy
+    // mono-channel path used by tests + non-MPE hosts. The MPE-aware
+    // overload binds the voice to a MIDI channel so subsequent per-
+    // channel pitch-bend / pressure / timbre updates can find it.
     void noteOn(int midiNote, float velocity);
+    void noteOn(int midiChannel, int midiNote, float velocity);
     void noteOff(int midiNote);
+    void noteOff(int midiChannel, int midiNote);
     void allNotesOff();
+
+    // Phase 3 §9 step 8 — MPE Note Expression. Per-channel state is
+    // applied to whichever voice currently holds that channel; held in
+    // a 16-slot side table so a noteOn on a channel inherits the most
+    // recent bend / pressure / timbre values (MPE convention).
+    static constexpr int kNumMidiChannels = 16;
+    void setChannelPitchBendSemitones(int midiChannel, float semitones) noexcept;
+    void setChannelPressure(int midiChannel, float pressure01) noexcept;
+    void setChannelTimbre(int midiChannel, float timbre01) noexcept;
 
     // Per-block render. Sums all active voices into the stereo output bus.
     void renderBlockStereo(float* outL, float* outR, int numSamples) noexcept;
@@ -91,6 +105,7 @@ private:
     {
         Voice voice;
         int midiNote = -1;            // -1 = free; else the held MIDI note
+        int midiChannel = 0;          // 0 = unbound; 1-16 = held MIDI channel
         std::uint64_t ageCounter = 0; // ticks per renderBlock — older = larger
     };
 
@@ -113,6 +128,14 @@ private:
     float midiCc1_ = 0.0f;
     float sampleRate_ = 48000.0f;
     std::uint64_t nextAge_ = 1; // monotonically increasing
+
+    // MPE channel state. Index 0 is unused (MIDI channels are 1-16).
+    // A noteOn on channel N inherits the side-table values; subsequent
+    // setChannel*() calls update both the side table and any voice bound
+    // to that channel.
+    std::array<float, kNumMidiChannels + 1> channelPitchBendSemitones_{};
+    std::array<float, kNumMidiChannels + 1> channelPressure_{};
+    std::array<float, kNumMidiChannels + 1> channelTimbre_{};
 
     // Scratch buffers for per-voice render summing — one allocation at
     // construction (sized to a generous max block); the audio thread

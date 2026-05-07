@@ -33,6 +33,8 @@ enum class Source : std::uint8_t
     KeyVelocity, // [0, 1] at noteOn
     MidiCc1,     // mod wheel, [0, 1]
     Random,      // per-note uniform draw, [-1, 1)
+    MpePressure, // MPE per-channel pressure, [0, 1]
+    MpeTimbre,   // MPE per-channel timbre (CC74 Y axis), [0, 1]
     Count
 };
 

@@ -10,6 +10,7 @@
 
 #include "dsp/dm_cos.h"
 #include "dsp/dm_log.h"
+#include "dsp/dm_pow2.h"
 #include "dsp/dm_sin.h"
 #include "dsp/dm_sqrt.h"
 
@@ -89,4 +90,37 @@ TEST_CASE("dm_log sentinel values", "[dsp][dm_log]")
     REQUIRE(std::fabs(sfs::dsp::dm_log(2.71828183f) - 1.0f) < 5e-3f);
     // log(2) ≈ 0.693
     REQUIRE(std::fabs(sfs::dsp::dm_log(2.0f) - 0.693147f) < 5e-3f);
+}
+
+TEST_CASE("dm_pow2 matches std::exp2 within MPE pitch-bend budget", "[dsp][dm_pow2]")
+{
+    // Budget chosen by musical relevance: 1 cent of pitch is ~5.78e-4
+    // in linear ratio, so 1e-4 relative error is well under one-fifth
+    // of a cent — sub-perceptible. The 5th-degree minimax polynomial
+    // gives ~5e-5 worst case on [0, 1]; ldexp adds no further error.
+    // MPE pitch bend lives in [-48, 48] semitones → x ∈ [-4, 4] octaves.
+    constexpr float kBudget = 1.0e-4f;
+    float maxRelErr = 0.0f;
+    for (int i = -480; i <= 480; ++i) // -4..+4 octaves in 0.01-octave steps
+    {
+        const float x = 0.01f * static_cast<float>(i);
+        const float ref = std::exp2(x);
+        const float got = sfs::dsp::dm_pow2(x);
+        const float relErr = std::fabs(got - ref) / ref;
+        if (relErr > maxRelErr)
+        {
+            maxRelErr = relErr;
+        }
+    }
+    CAPTURE(maxRelErr);
+    REQUIRE(maxRelErr < kBudget);
+}
+
+TEST_CASE("dm_pow2 sentinel values", "[dsp][dm_pow2]")
+{
+    REQUIRE(std::fabs(sfs::dsp::dm_pow2(0.0f) - 1.0f) < 1e-6f);
+    REQUIRE(std::fabs(sfs::dsp::dm_pow2(1.0f) - 2.0f) < 1e-4f);
+    REQUIRE(std::fabs(sfs::dsp::dm_pow2(-1.0f) - 0.5f) < 1e-4f);
+    REQUIRE(std::fabs(sfs::dsp::dm_pow2(0.5f) - 1.41421356f) < 1e-4f);        // √2
+    REQUIRE(std::fabs(sfs::dsp::dm_pow2(7.0f / 12.0f) - 1.4983071f) < 1e-4f); // perfect 5th
 }

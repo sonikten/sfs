@@ -5,6 +5,7 @@
 #include "voice.h"
 
 #include "dsp/denormal_flush.h"
+#include "dsp/dm_pow2.h"
 #include "engine/rng/philox.h"
 
 #include <algorithm>
@@ -59,6 +60,8 @@ sfs::engine::macros::MacroValues Voice::applyModMatrix(const sfs::engine::macros
     sources[static_cast<std::size_t>(Source::KeyVelocity)] = keyVelocity_;
     sources[static_cast<std::size_t>(Source::MidiCc1)] = midiCc1_;
     sources[static_cast<std::size_t>(Source::Random)] = randomPerNote_;
+    sources[static_cast<std::size_t>(Source::MpePressure)] = mpePressure_;
+    sources[static_cast<std::size_t>(Source::MpeTimbre)] = mpeTimbre_;
 
     std::array<float, ModMatrix::kNumDestinations> deltas{};
     modMatrix_.evaluate(sources, deltas);
@@ -106,6 +109,10 @@ void Voice::applyMacroFanOut(const sfs::engine::macros::InternalFields& fields) 
     const float driftScale = fields.agentDriftScale;
     const float noiseScale = fields.agentMigrationNoiseScale;
     const float detuneScale = fields.agentDetuneScale; // (1 - C)²
+    // MPE pitch-bend ratio: block-rate 2^(semitones/12). Bypassed (= 1.0)
+    // when no bend is active so non-MPE renders stay bit-exact with Phase 2.
+    const float pitchBendRatio = (pitchBendSemitones_ != 0.0f) ? sfs::dsp::dm_pow2(pitchBendSemitones_ * (1.0f / 12.0f))
+                                                               : 1.0f;
     for (int i = 0; i < agents_.activeCount(); ++i)
     {
         auto& a = agents_.mutableAgent(i);
@@ -115,7 +122,7 @@ void Voice::applyMacroFanOut(const sfs::engine::macros::InternalFields& fields) 
         a.migrationRate = a.migrationDirection * driftScale * kRDirectionUnit;
         a.migrationNoiseScale = noiseScale * kEpsNoiseUnit;
         const float cents = a.detuneCents * detuneScale;
-        a.frequency = a.baseFrequency * (1.0f + cents * kCentsToRatio);
+        a.frequency = a.baseFrequency * (1.0f + cents * kCentsToRatio) * pitchBendRatio;
     }
 }
 

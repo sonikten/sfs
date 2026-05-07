@@ -8,6 +8,7 @@
 add_library(sfs_dsp STATIC
     dm_sin.cpp
     dm_log.cpp
+    dm_pow2.cpp
     # dm_cos.h, dm_sqrt.h, denormal_flush.h are header-only — listed here
     # so they show up in IDEs.
 )

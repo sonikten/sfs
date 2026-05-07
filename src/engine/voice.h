@@ -99,6 +99,17 @@ public:
     [[nodiscard]] float keyVelocity() const noexcept { return keyVelocity_; }
     [[nodiscard]] float randomPerNote() const noexcept { return randomPerNote_; }
 
+    // Phase 3 §9 step 8 — MPE Note Expression. Pitch bend in semitones (typically
+    // ±48 for full MPE range). Block-rate; applied multiplicatively to every
+    // agent's frequency in applyMacroFanOut. Pressure / timbre route as mod
+    // matrix sources (sfs-spec/05 §5.2).
+    void setPitchBendSemitones(float s) noexcept { pitchBendSemitones_ = s; }
+    [[nodiscard]] float pitchBendSemitones() const noexcept { return pitchBendSemitones_; }
+    void setMpePressure(float v) noexcept { mpePressure_ = v; }
+    [[nodiscard]] float mpePressure() const noexcept { return mpePressure_; }
+    void setMpeTimbre(float v) noexcept { mpeTimbre_ = v; }
+    [[nodiscard]] float mpeTimbre() const noexcept { return mpeTimbre_; }
+
     void setHarvesterPosition(float position) noexcept { harvesterPosition_ = position; }
     [[nodiscard]] float harvesterPosition() const noexcept { return harvesterPosition_; }
 
@@ -138,6 +149,9 @@ private:
     float keyVelocity_ = 0.0f;
     float midiCc1_ = 0.0f;
     float randomPerNote_ = 0.0f;
+    float pitchBendSemitones_ = 0.0f; // MPE per-channel pitch bend, semitones
+    float mpePressure_ = 0.0f;        // MPE per-channel pressure [0, 1]
+    float mpeTimbre_ = 0.5f;          // MPE per-channel timbre (CC74) [0, 1], default centred
     float sampleRate_;
     float harvesterPosition_ = 0.0f;
     bool gated_ = false;
