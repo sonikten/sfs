@@ -171,6 +171,43 @@ the audio inner loop OR gated behind opt-in flags / channel layouts.
 - Doc 09 sweep — verify every persisted field round-trips through the
   preset format end-to-end.
 
+## Known divergence: canonical audio-hash render protocol
+
+Surfaced during the Phase 4 audit follow-up. **The implementation and
+the spec disagree on the canonical render protocol for `_audio_hash`.**
+
+| Field | Doc 06 §3.3 says | `tools/sfs_preset_render` does |
+|---|---|---|
+| Velocity | 100 (≈ 0.787 normalised) | 1.0 (max) |
+| Gate behaviour | gate-on at sample 0, **gate-off at sample 24000** (0.5 s) | gate-on at sample 0, **never gates off** (full 30 s sustain) |
+| Other (sr / block / channels / duration / note) | 48 kHz / 256 / stereo float32 / 30 s / C4 | matches |
+
+The 128 factory presets' `_audio_hash` values were generated with the
+tool's protocol, not the spec's. **No CI step currently validates a
+factory preset's stored `_audio_hash` against a live render**, so this
+divergence has been latent.
+
+The audit's medium-priority gap "validate `_audio_hash` against live
+render" is deferred until the user confirms which protocol is
+canonical:
+
+- **Option A — keep the tool, fix the spec.** The simpler path: update
+  Doc 06 §3.3 to read "velocity 1.0, sustained for the full 30 s"; no
+  preset hashes change.
+- **Option B — fix the tool, regenerate every hash.** Update
+  `tools/sfs_preset_render` to gate-off at 0.5 s and use velocity 100;
+  re-run `tools/sfs_preset_hash.sh --update` across all 128 presets;
+  re-commit. Heavier but matches the spec's intent (the gate-off
+  captures release-tail behaviour, which is musically important).
+
+Recommended: **B** — the spec's protocol is more useful as a regression
+catch (it tests the release path, not just sustained behaviour). But
+the user owns this choice; flagging it rather than auto-deciding.
+
+Once the protocol is settled, the validation test trivially follows:
+walk every `presets/factory/**/*.sfs`, render via the chosen protocol,
+SHA-256 the PCM, compare against `_audio_hash`, fail on mismatch.
+
 ## Sign-off
 
 Phase 4 gate is met when this commit's CI cycle ships:
