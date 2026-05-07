@@ -595,29 +595,102 @@ void VoiceManager::renderBlockFoa(float* outW, float* outX, float* outY, float* 
     smoothedMacros_.excitation += (macroTargets_.excitation - smoothedMacros_.excitation) * alpha;
     smoothedMacros_.clampInPlace();
 
-    for (auto& s : slots_)
+    if (pool_ != nullptr)
     {
-        const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
-        if (!shouldRender)
+        struct FoaArgs
         {
-            continue;
+            Voice* voice;
+            float* outW;
+            float* outX;
+            float* outY;
+            float* outZ;
+            int n;
+        };
+        std::array<FoaArgs, kMaxVoices> args{};
+        int numActive = 0;
+        for (int v = 0; v < kMaxVoices; ++v)
+        {
+            auto& s = slots_[static_cast<std::size_t>(v)];
+            auto& j = pool_->job(v);
+            const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
+            if (!shouldRender)
+            {
+                j.active.store(false, std::memory_order_release);
+                continue;
+            }
+            s.voice.macros() = smoothedMacros_;
+            s.voice.setUniformShape(uniformShape_);
+            s.voice.setMidiCc1(midiCc1_);
+            args[static_cast<std::size_t>(v)] = FoaArgs{&s.voice,
+                                                        perVoiceScratch_[static_cast<std::size_t>(v)][0].data(),
+                                                        perVoiceScratch_[static_cast<std::size_t>(v)][1].data(),
+                                                        perVoiceScratch_[static_cast<std::size_t>(v)][2].data(),
+                                                        perVoiceScratch_[static_cast<std::size_t>(v)][3].data(),
+                                                        numSamples};
+            j.userData = &args[static_cast<std::size_t>(v)];
+            j.work = [](void* ud) noexcept
+            {
+                auto* a = static_cast<FoaArgs*>(ud);
+                a->voice->renderBlockFoa(a->outW, a->outX, a->outY, a->outZ, a->n);
+            };
+            j.claimed.store(false, std::memory_order_release);
+            j.done.store(false, std::memory_order_release);
+            j.active.store(true, std::memory_order_release);
+            ++numActive;
         }
-        s.voice.macros() = smoothedMacros_;
-        s.voice.setUniformShape(uniformShape_);
-        s.voice.setMidiCc1(midiCc1_);
-
-        s.voice.renderBlockFoa(bufW, bufX, bufY, bufZ, numSamples);
-        for (int i = 0; i < numSamples; ++i)
+        pool_->submit(numActive);
+        for (int v = 0; v < kMaxVoices; ++v)
         {
-            outW[i] += bufW[i];
-            outX[i] += bufX[i];
-            outY[i] += bufY[i];
-            outZ[i] += bufZ[i];
+            auto& s = slots_[static_cast<std::size_t>(v)];
+            auto& j = pool_->job(v);
+            if (!j.active.load(std::memory_order_acquire))
+            {
+                continue;
+            }
+            pool_->waitFor(v);
+            const float* const sW = perVoiceScratch_[static_cast<std::size_t>(v)][0].data();
+            const float* const sX = perVoiceScratch_[static_cast<std::size_t>(v)][1].data();
+            const float* const sY = perVoiceScratch_[static_cast<std::size_t>(v)][2].data();
+            const float* const sZ = perVoiceScratch_[static_cast<std::size_t>(v)][3].data();
+            for (int i = 0; i < numSamples; ++i)
+            {
+                outW[i] += sW[i];
+                outX[i] += sX[i];
+                outY[i] += sY[i];
+                outZ[i] += sZ[i];
+            }
+            if (!s.voice.isGated() && s.midiNote >= 0)
+            {
+                s.midiNote = -1;
+            }
         }
-
-        if (!s.voice.isGated() && s.midiNote >= 0)
+    }
+    else
+    {
+        for (auto& s : slots_)
         {
-            s.midiNote = -1;
+            const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
+            if (!shouldRender)
+            {
+                continue;
+            }
+            s.voice.macros() = smoothedMacros_;
+            s.voice.setUniformShape(uniformShape_);
+            s.voice.setMidiCc1(midiCc1_);
+
+            s.voice.renderBlockFoa(bufW, bufX, bufY, bufZ, numSamples);
+            for (int i = 0; i < numSamples; ++i)
+            {
+                outW[i] += bufW[i];
+                outX[i] += bufX[i];
+                outY[i] += bufY[i];
+                outZ[i] += bufZ[i];
+            }
+
+            if (!s.voice.isGated() && s.midiNote >= 0)
+            {
+                s.midiNote = -1;
+            }
         }
     }
 
@@ -685,29 +758,99 @@ void VoiceManager::renderBlockSurround51(
                            scratch51_[4].data(),
                            scratch51_[5].data()};
 
-    for (auto& s : slots_)
+    if (pool_ != nullptr)
     {
-        const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
-        if (!shouldRender)
+        struct Surround51Args
         {
-            continue;
-        }
-        s.voice.macros() = smoothedMacros_;
-        s.voice.setUniformShape(uniformShape_);
-        s.voice.setMidiCc1(midiCc1_);
-
-        s.voice.renderBlockSurround51(buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], numSamples);
-        for (int c = 0; c < 6; ++c)
+            Voice* voice;
+            float* outs[6];
+            int n;
+        };
+        std::array<Surround51Args, kMaxVoices> args{};
+        int numActive = 0;
+        for (int v = 0; v < kMaxVoices; ++v)
         {
-            for (int i = 0; i < numSamples; ++i)
+            auto& s = slots_[static_cast<std::size_t>(v)];
+            auto& j = pool_->job(v);
+            const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
+            if (!shouldRender)
             {
-                channelOut[c][i] += buf[c][i];
+                j.active.store(false, std::memory_order_release);
+                continue;
+            }
+            s.voice.macros() = smoothedMacros_;
+            s.voice.setUniformShape(uniformShape_);
+            s.voice.setMidiCc1(midiCc1_);
+            auto& a = args[static_cast<std::size_t>(v)];
+            a.voice = &s.voice;
+            for (int c = 0; c < 6; ++c)
+            {
+                a.outs[c] = perVoiceScratch_[static_cast<std::size_t>(v)][static_cast<std::size_t>(c)].data();
+            }
+            a.n = numSamples;
+            j.userData = &a;
+            j.work = [](void* ud) noexcept
+            {
+                auto* aa = static_cast<Surround51Args*>(ud);
+                aa->voice->renderBlockSurround51(
+                    aa->outs[0], aa->outs[1], aa->outs[2], aa->outs[3], aa->outs[4], aa->outs[5], aa->n);
+            };
+            j.claimed.store(false, std::memory_order_release);
+            j.done.store(false, std::memory_order_release);
+            j.active.store(true, std::memory_order_release);
+            ++numActive;
+        }
+        pool_->submit(numActive);
+        for (int v = 0; v < kMaxVoices; ++v)
+        {
+            auto& s = slots_[static_cast<std::size_t>(v)];
+            auto& j = pool_->job(v);
+            if (!j.active.load(std::memory_order_acquire))
+            {
+                continue;
+            }
+            pool_->waitFor(v);
+            for (int c = 0; c < 6; ++c)
+            {
+                const float* const src =
+                    perVoiceScratch_[static_cast<std::size_t>(v)][static_cast<std::size_t>(c)].data();
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    channelOut[c][i] += src[i];
+                }
+            }
+            if (!s.voice.isGated() && s.midiNote >= 0)
+            {
+                s.midiNote = -1;
             }
         }
-
-        if (!s.voice.isGated() && s.midiNote >= 0)
+    }
+    else
+    {
+        for (auto& s : slots_)
         {
-            s.midiNote = -1;
+            const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
+            if (!shouldRender)
+            {
+                continue;
+            }
+            s.voice.macros() = smoothedMacros_;
+            s.voice.setUniformShape(uniformShape_);
+            s.voice.setMidiCc1(midiCc1_);
+
+            s.voice.renderBlockSurround51(buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], numSamples);
+            for (int c = 0; c < 6; ++c)
+            {
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    channelOut[c][i] += buf[c][i];
+                }
+            }
+
+            if (!s.voice.isGated() && s.midiNote >= 0)
+            {
+                s.midiNote = -1;
+            }
         }
     }
 
@@ -777,29 +920,98 @@ void VoiceManager::renderBlockSurround714(float* const* outs, int numSamples) no
         buf[c] = scratch714_[static_cast<std::size_t>(c)].data();
     }
 
-    for (auto& s : slots_)
+    if (pool_ != nullptr)
     {
-        const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
-        if (!shouldRender)
+        struct Surround714Args
         {
-            continue;
-        }
-        s.voice.macros() = smoothedMacros_;
-        s.voice.setUniformShape(uniformShape_);
-        s.voice.setMidiCc1(midiCc1_);
-
-        s.voice.renderBlockSurround714(buf, numSamples);
-        for (int c = 0; c < 12; ++c)
+            Voice* voice;
+            float* outs[12];
+            int n;
+        };
+        std::array<Surround714Args, kMaxVoices> args{};
+        int numActive = 0;
+        for (int v = 0; v < kMaxVoices; ++v)
         {
-            for (int i = 0; i < numSamples; ++i)
+            auto& s = slots_[static_cast<std::size_t>(v)];
+            auto& j = pool_->job(v);
+            const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
+            if (!shouldRender)
             {
-                outs[c][i] += buf[c][i];
+                j.active.store(false, std::memory_order_release);
+                continue;
+            }
+            s.voice.macros() = smoothedMacros_;
+            s.voice.setUniformShape(uniformShape_);
+            s.voice.setMidiCc1(midiCc1_);
+            auto& a = args[static_cast<std::size_t>(v)];
+            a.voice = &s.voice;
+            for (int c = 0; c < 12; ++c)
+            {
+                a.outs[c] = perVoiceScratch_[static_cast<std::size_t>(v)][static_cast<std::size_t>(c)].data();
+            }
+            a.n = numSamples;
+            j.userData = &a;
+            j.work = [](void* ud) noexcept
+            {
+                auto* aa = static_cast<Surround714Args*>(ud);
+                aa->voice->renderBlockSurround714(aa->outs, aa->n);
+            };
+            j.claimed.store(false, std::memory_order_release);
+            j.done.store(false, std::memory_order_release);
+            j.active.store(true, std::memory_order_release);
+            ++numActive;
+        }
+        pool_->submit(numActive);
+        for (int v = 0; v < kMaxVoices; ++v)
+        {
+            auto& s = slots_[static_cast<std::size_t>(v)];
+            auto& j = pool_->job(v);
+            if (!j.active.load(std::memory_order_acquire))
+            {
+                continue;
+            }
+            pool_->waitFor(v);
+            for (int c = 0; c < 12; ++c)
+            {
+                const float* const src =
+                    perVoiceScratch_[static_cast<std::size_t>(v)][static_cast<std::size_t>(c)].data();
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    outs[c][i] += src[i];
+                }
+            }
+            if (!s.voice.isGated() && s.midiNote >= 0)
+            {
+                s.midiNote = -1;
             }
         }
-
-        if (!s.voice.isGated() && s.midiNote >= 0)
+    }
+    else
+    {
+        for (auto& s : slots_)
         {
-            s.midiNote = -1;
+            const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
+            if (!shouldRender)
+            {
+                continue;
+            }
+            s.voice.macros() = smoothedMacros_;
+            s.voice.setUniformShape(uniformShape_);
+            s.voice.setMidiCc1(midiCc1_);
+
+            s.voice.renderBlockSurround714(buf, numSamples);
+            for (int c = 0; c < 12; ++c)
+            {
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    outs[c][i] += buf[c][i];
+                }
+            }
+
+            if (!s.voice.isGated() && s.midiNote >= 0)
+            {
+                s.midiNote = -1;
+            }
         }
     }
 

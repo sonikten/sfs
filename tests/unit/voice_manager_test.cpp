@@ -590,6 +590,159 @@ TEST_CASE("Voice-pool threading: 2D topology bit-exact with serial", "[voice_man
     }
 }
 
+TEST_CASE("Voice-pool threading: FOA bit-exact vs serial", "[voice_manager][threading][foa][determinism]")
+{
+    constexpr int kHoldSamples = kSampleRate / 8;
+    constexpr int kBlock = 256;
+    auto setup = [&](VoiceManager& mgr)
+    {
+        mgr.setTopology(sfs::engine::Topology::Torus2D);
+        mgr.macros().tension = 0.5f;
+        mgr.macros().damping = 0.3f;
+        mgr.macros().density = 0.6f;
+        mgr.macros().migration = 0.0f;
+        mgr.macros().coherence = 1.0f;
+        mgr.macros().excitation = 0.0f;
+        mgr.noteOn(60, 1.0f);
+        mgr.noteOn(64, 0.8f);
+    };
+    VoiceManager serial(kSubstrateCells, 16, kSampleRateF);
+    setup(serial);
+    std::vector<float> sW(kHoldSamples), sX(kHoldSamples), sY(kHoldSamples), sZ(kHoldSamples);
+    for (int written = 0; written < kHoldSamples; written += kBlock)
+    {
+        const int n = std::min(kBlock, kHoldSamples - written);
+        serial.renderBlockFoa(sW.data() + written, sX.data() + written, sY.data() + written, sZ.data() + written, n);
+    }
+
+    VoiceManager parallel(kSubstrateCells, 16, kSampleRateF);
+    parallel.enableThreading(2);
+    setup(parallel);
+    std::vector<float> pW(kHoldSamples), pX(kHoldSamples), pY(kHoldSamples), pZ(kHoldSamples);
+    for (int written = 0; written < kHoldSamples; written += kBlock)
+    {
+        const int n = std::min(kBlock, kHoldSamples - written);
+        parallel.renderBlockFoa(pW.data() + written, pX.data() + written, pY.data() + written, pZ.data() + written, n);
+    }
+
+    for (int i = 0; i < kHoldSamples; ++i)
+    {
+        REQUIRE(sW[static_cast<std::size_t>(i)] == pW[static_cast<std::size_t>(i)]);
+        REQUIRE(sX[static_cast<std::size_t>(i)] == pX[static_cast<std::size_t>(i)]);
+        REQUIRE(sY[static_cast<std::size_t>(i)] == pY[static_cast<std::size_t>(i)]);
+        REQUIRE(sZ[static_cast<std::size_t>(i)] == pZ[static_cast<std::size_t>(i)]);
+    }
+}
+
+TEST_CASE("Voice-pool threading: 5.1 surround bit-exact vs serial", "[voice_manager][threading][surround][determinism]")
+{
+    constexpr int kHoldSamples = kSampleRate / 8;
+    constexpr int kBlock = 256;
+    auto setup = [&](VoiceManager& mgr)
+    {
+        mgr.setTopology(sfs::engine::Topology::Torus2D);
+        mgr.noteOn(60, 1.0f);
+        mgr.noteOn(64, 0.8f);
+    };
+    auto render = [&](VoiceManager& mgr, std::array<std::vector<float>, 6>& ch)
+    {
+        for (int written = 0; written < kHoldSamples; written += kBlock)
+        {
+            const int n = std::min(kBlock, kHoldSamples - written);
+            mgr.renderBlockSurround51(ch[0].data() + written,
+                                      ch[1].data() + written,
+                                      ch[2].data() + written,
+                                      ch[3].data() + written,
+                                      ch[4].data() + written,
+                                      ch[5].data() + written,
+                                      n);
+        }
+    };
+    auto makeBufs = [&]
+    {
+        std::array<std::vector<float>, 6> ch;
+        for (auto& c : ch)
+        {
+            c.assign(static_cast<std::size_t>(kHoldSamples), 0.0f);
+        }
+        return ch;
+    };
+
+    VoiceManager serial(kSubstrateCells, 16, kSampleRateF);
+    setup(serial);
+    auto s = makeBufs();
+    render(serial, s);
+
+    VoiceManager parallel(kSubstrateCells, 16, kSampleRateF);
+    parallel.enableThreading(4);
+    setup(parallel);
+    auto p = makeBufs();
+    render(parallel, p);
+
+    for (int c = 0; c < 6; ++c)
+    {
+        const auto cIdx = static_cast<std::size_t>(c);
+        for (int i = 0; i < kHoldSamples; ++i)
+        {
+            REQUIRE(s[cIdx][static_cast<std::size_t>(i)] == p[cIdx][static_cast<std::size_t>(i)]);
+        }
+    }
+}
+
+TEST_CASE("Voice-pool threading: 7.1.4 surround bit-exact vs serial",
+          "[voice_manager][threading][surround][determinism]")
+{
+    constexpr int kHoldSamples = kSampleRate / 8;
+    constexpr int kBlock = 256;
+    auto setup = [&](VoiceManager& mgr)
+    {
+        mgr.setTopology(sfs::engine::Topology::Torus2D);
+        mgr.noteOn(60, 1.0f);
+    };
+    auto render = [&](VoiceManager& mgr, std::array<std::vector<float>, 12>& ch)
+    {
+        for (int written = 0; written < kHoldSamples; written += kBlock)
+        {
+            const int n = std::min(kBlock, kHoldSamples - written);
+            std::array<float*, 12> ptrs;
+            for (std::size_t k = 0; k < 12; ++k)
+            {
+                ptrs[k] = ch[k].data() + written;
+            }
+            mgr.renderBlockSurround714(ptrs.data(), n);
+        }
+    };
+    auto makeBufs = [&]
+    {
+        std::array<std::vector<float>, 12> ch;
+        for (auto& c : ch)
+        {
+            c.assign(static_cast<std::size_t>(kHoldSamples), 0.0f);
+        }
+        return ch;
+    };
+
+    VoiceManager serial(kSubstrateCells, 16, kSampleRateF);
+    setup(serial);
+    auto s = makeBufs();
+    render(serial, s);
+
+    VoiceManager parallel(kSubstrateCells, 16, kSampleRateF);
+    parallel.enableThreading(2);
+    setup(parallel);
+    auto p = makeBufs();
+    render(parallel, p);
+
+    for (int c = 0; c < 12; ++c)
+    {
+        const auto cIdx = static_cast<std::size_t>(c);
+        for (int i = 0; i < kHoldSamples; ++i)
+        {
+            REQUIRE(s[cIdx][static_cast<std::size_t>(i)] == p[cIdx][static_cast<std::size_t>(i)]);
+        }
+    }
+}
+
 TEST_CASE("MPE pitch bend = 0 produces bit-exact output vs. legacy noteOn", "[voice_manager][mpe][determinism]")
 {
     // Bypass guarantee: when no MPE pitch bend is in flight the render
