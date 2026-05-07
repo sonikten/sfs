@@ -476,8 +476,10 @@ void Voice::renderBlockSurround51(
             outLs[i] = outL[i];
             outRs[i] = outR[i];
             const float sum = outL[i] + outR[i];
-            lfeLpfState_ += lfeLpfAlpha_ * (sum - lfeLpfState_);
-            outLfe[i] = lfeLpfState_;
+            // 1D-mode 5.1 LFE downmix: 2nd-order LR (see 5.1 path).
+            lfeLpfStage1_ += lfeLpfAlpha_ * (sum - lfeLpfStage1_);
+            lfeLpfStage2_ += lfeLpfAlpha_ * (lfeLpfStage1_ - lfeLpfStage2_);
+            outLfe[i] = lfeLpfStage2_;
         }
         return;
     }
@@ -547,8 +549,10 @@ void Voice::renderBlockSurround51(
         const float rLs = substrate2D_.read(posLsx, posLsy);
         const float rRs = substrate2D_.read(posRsx, posRsy);
         const float lfeRaw = rL + rR + rC + rLs + rRs;
-        lfeLpfState_ += lfeLpfAlpha_ * (lfeRaw - lfeLpfState_);
-        const float rLfe = lfeLpfState_;
+        // 5.1 2D LFE: 2nd-order Linkwitz-Riley (sfs-spec/04 §3.4).
+        lfeLpfStage1_ += lfeLpfAlpha_ * (lfeRaw - lfeLpfStage1_);
+        lfeLpfStage2_ += lfeLpfAlpha_ * (lfeLpfStage1_ - lfeLpfStage2_);
+        const float rLfe = lfeLpfStage2_;
 
         // Per-channel DC block + soft clip + steal ramp.
         const std::array<float, 6> raw = {rL, rR, rC, rLfe, rLs, rRs};
@@ -603,16 +607,19 @@ void Voice::renderBlockSurround714(float* const* outs, int numSamples) noexcept
             const float r = outs[1][i];
             outs[2][i] = 0.5f * (l + r); // C
             const float sum = l + r;
-            lfeLpfState_ += lfeLpfAlpha_ * (sum - lfeLpfState_);
-            outs[3][i] = lfeLpfState_; // LFE
-            outs[4][i] = l;            // Ls
-            outs[5][i] = r;            // Rs
-            outs[6][i] = l;            // Lr
-            outs[7][i] = r;            // Rr
-            outs[8][i] = 0.0f;         // Tfl
-            outs[9][i] = 0.0f;         // Tfr
-            outs[10][i] = 0.0f;        // Trl
-            outs[11][i] = 0.0f;        // Trr
+            // 7.1.4 LFE: 2nd-order Linkwitz-Riley (cascaded 1st-order
+            // Butterworth-1 stages) at 120 Hz. -6 dB at fc, -12 dB/oct.
+            lfeLpfStage1_ += lfeLpfAlpha_ * (sum - lfeLpfStage1_);
+            lfeLpfStage2_ += lfeLpfAlpha_ * (lfeLpfStage1_ - lfeLpfStage2_);
+            outs[3][i] = lfeLpfStage2_; // LFE
+            outs[4][i] = l;             // Ls
+            outs[5][i] = r;             // Rs
+            outs[6][i] = l;             // Lr
+            outs[7][i] = r;             // Rr
+            outs[8][i] = 0.0f;          // Tfl
+            outs[9][i] = 0.0f;          // Tfr
+            outs[10][i] = 0.0f;         // Trl
+            outs[11][i] = 0.0f;         // Trr
         }
         return;
     }
@@ -699,11 +706,12 @@ void Voice::renderBlockSurround714(float* const* outs, int numSamples) noexcept
         const float rTrl = substrate2D_.read(pTrl[0], pTrl[1]);
         const float rTrr = substrate2D_.read(pTrr[0], pTrr[1]);
 
-        // LFE: 1st-order LPF of the 11-channel sum (Phase 3 stub; LR-2 in
-        // Phase 4 — same caveat as the 5.1 path).
+        // 7.1.4 2D LFE: 2nd-order Linkwitz-Riley of the 11-channel sum
+        // (sfs-spec/04 §3.5).
         const float lfeRaw = rL + rR + rC + rLs + rRs + rLr + rRr + rTfl + rTfr + rTrl + rTrr;
-        lfeLpfState_ += lfeLpfAlpha_ * (lfeRaw - lfeLpfState_);
-        const float rLfe = lfeLpfState_;
+        lfeLpfStage1_ += lfeLpfAlpha_ * (lfeRaw - lfeLpfStage1_);
+        lfeLpfStage2_ += lfeLpfAlpha_ * (lfeLpfStage1_ - lfeLpfStage2_);
+        const float rLfe = lfeLpfStage2_;
 
         // Per-channel DC block + soft clip + steal ramp. JUCE channel
         // order: L, R, C, LFE, Ls, Rs, Lr, Rr, Tfl, Tfr, Trl, Trr.

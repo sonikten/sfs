@@ -19,6 +19,7 @@ add_executable (sfs_unit_tests
     lfo_test.cpp
     mod_matrix_test.cpp
     preset_format_test.cpp
+    lfe_lr2_test.cpp
 )
 
 target_link_libraries (sfs_unit_tests

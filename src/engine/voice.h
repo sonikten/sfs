@@ -73,10 +73,10 @@ public:
     //   L  = -30°  R  = +30°  C  =  0°
     //   Ls = -110° Rs = +110°
     //
-    // LFE: 120 Hz first-order low-pass of the 5-channel sum (sfs-spec
-    // §3.4 specifies 2nd-order Linkwitz–Riley; Phase 3 ships 1st-order
-    // for simplicity and tightens to LR-2 in Phase 4 alongside the
-    // master output stage).
+    // LFE: 2nd-order Linkwitz–Riley low-pass of the 5-channel sum at
+    // 120 Hz (sfs-spec/04 §3.4). Implemented as two cascaded 1st-order
+    // Butterworth-1 stages — -6 dB at fc, -12 dB/oct asymptote.
+    // Upgraded from Phase 3's single-stage stub in P4.C25.
     void renderBlockSurround51(
         float* outL, float* outR, float* outC, float* outLfe, float* outLs, float* outRs, int numSamples) noexcept;
 
@@ -94,8 +94,8 @@ public:
     //                   (0.5·Nx, 0.8·Ny), radius 0.15·min(Nx, Ny):
     //                    Tfl = -45°  Tfr = +45°
     //                    Trl = -135° Trr = +135°
-    //   LFE — 120 Hz LPF of the 11-channel sum (1st-order, same stub as
-    //         5.1; LR-2 in Phase 4).
+    //   LFE — 2nd-order Linkwitz–Riley low-pass of the 11-channel sum
+    //         at 120 Hz (matches the 5.1 LFE stage).
     //
     // 1D topology: spec downmix-to-stereo. L/R from the existing stereo
     // render; C = (L+R)/2; Ls/Rs/Lr/Rr copy L/R; height channels zeroed
@@ -266,8 +266,14 @@ private:
 
     // LFE 120 Hz one-pole LPF state. y[n] = y[n-1] + α·(x[n] - y[n-1]).
     // α set at construction from sample rate.
-    float lfeLpfState_ = 0.0f;
-    float lfeLpfAlpha_ = 0.0157f; // ≈ 2π·120/48000
+    // 2nd-order Linkwitz–Riley LFE LPF at 120 Hz (sfs-spec/04 §3.4 + §3.5):
+    // implemented as two cascaded 1st-order Butterworth-1 stages sharing
+    // alpha. Magnitude is -6 dB at fc (each stage contributes -3 dB) and
+    // -12 dB/oct asymptote — the canonical LR-2 response. Phase 3 shipped
+    // a single-stage 1st-order; Phase 4 §C25 closes the deferral.
+    float lfeLpfStage1_ = 0.0f;
+    float lfeLpfStage2_ = 0.0f;
+    float lfeLpfAlpha_ = 0.0157f; // ≈ 2π·120/48000 (Padé-derived)
 
     // Stereo harvester positions. Mono renderBlock uses harvesterPosition_
     // (set to substrate midpoint by default, kept for test compatibility).
