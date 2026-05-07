@@ -23,3 +23,4 @@ include(Catch)
 
 add_subdirectory(unit)
 add_subdirectory(contract)
+add_subdirectory(integration)

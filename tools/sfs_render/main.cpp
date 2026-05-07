@@ -49,6 +49,10 @@ struct RenderOptions
     // Gate on/off as sample indices. -1 means "at start" / "never (gate held)".
     juce::int64 gateOnSample = 0;
     juce::int64 gateOffSample = -1;
+    // Phase 4: optional .sfs preset to load before rendering. Exercises
+    // SfsAudioProcessor::loadPresetFromFile (the host-param load path)
+    // rather than VoiceManager direct setters.
+    std::string presetPath;
 };
 
 void printUsage()
@@ -167,6 +171,15 @@ bool parseArgs(int argc, char** argv, RenderOptions& opts)
             }
             opts.gateOffSample = static_cast<juce::int64>(std::atoll(argv[i]));
         }
+        else if (arg == "--preset")
+        {
+            if (++i >= argc)
+            {
+                std::fprintf(stderr, "sfs_render: missing value for --preset\n");
+                return false;
+            }
+            opts.presetPath = argv[i];
+        }
         else if (arg == "-h" || arg == "--help")
         {
             printUsage();
@@ -213,6 +226,20 @@ int main(int argc, char** argv)
     processor.setBusesLayout(layout);
 
     processor.prepareToPlay(opts.sampleRate, opts.blockSize);
+
+    // Optional preset load — uses the same host-param path the GUI uses
+    // (SfsAudioProcessor::loadPresetFromFile → AudioParameter writes →
+    // processBlock fan-out). This is what catches "preset loads but no
+    // audio plays" regressions.
+    if (!opts.presetPath.empty())
+    {
+        juce::String err;
+        if (!processor.loadPresetFromFile(juce::String(opts.presetPath), err))
+        {
+            std::fprintf(stderr, "sfs_render: preset load failed: %s\n", err.toRawUTF8());
+            return 1;
+        }
+    }
 
     // Output WAV: 32-bit float, little-endian. Single source of truth for the
     // determinism harness; do NOT change format without bumping reference hashes.
