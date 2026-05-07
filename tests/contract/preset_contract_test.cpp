@@ -38,24 +38,27 @@ constexpr int kSubstrateCells = 1024;
 constexpr int kAgentCount = 16;
 constexpr int kBlock = 256;
 
-[[nodiscard]] std::filesystem::path presetDir()
+[[nodiscard]] std::vector<std::filesystem::path> presetRoots()
 {
-    // Tests run from CMAKE_BINARY_DIR per tests/unit/CMakeLists.txt; the
-    // contract presets live under <repo>/presets/contract/. Walk up from
-    // the build dir to find them. CMake cwd at test time is the build
-    // root; the source tree is at ../<repo-name>/. Use a probe-up
-    // approach — try a few candidate paths so the test works whether
-    // launched from build/, from the repo root, or from CTest.
+    // Probe candidate locations of the preset roots. Tests may be invoked
+    // from build/, repo root, or CTest's WORKING_DIRECTORY. We walk both
+    // `presets/contract/` (small in-tree fixtures) and `presets/factory/`
+    // (the shipping palette, including the 8 Init presets from Doc 09 §4).
     namespace fs = std::filesystem;
-    for (const auto& candidate :
-         {fs::path("presets/contract"), fs::path("../presets/contract"), fs::path("../../presets/contract")})
+    std::vector<fs::path> out;
+    for (const auto& sub : {fs::path("contract"), fs::path("factory")})
     {
-        if (fs::exists(candidate) && fs::is_directory(candidate))
+        for (const auto& base : {fs::path("presets"), fs::path("../presets"), fs::path("../../presets")})
         {
-            return fs::canonical(candidate);
+            const auto candidate = base / sub;
+            if (fs::exists(candidate) && fs::is_directory(candidate))
+            {
+                out.push_back(fs::canonical(candidate));
+                break;
+            }
         }
     }
-    return fs::path{};
+    return out;
 }
 
 [[nodiscard]] bool hasTag(const Preset& p, const std::string& tag)
@@ -95,16 +98,14 @@ constexpr int kBlock = 256;
 {
     namespace fs = std::filesystem;
     std::vector<fs::path> out;
-    const auto dir = presetDir();
-    if (dir.empty())
+    for (const auto& root : presetRoots())
     {
-        return out;
-    }
-    for (const auto& entry : fs::directory_iterator(dir))
-    {
-        if (entry.is_regular_file() && entry.path().extension() == ".sfs")
+        for (const auto& entry : fs::recursive_directory_iterator(root))
         {
-            out.push_back(entry.path());
+            if (entry.is_regular_file() && entry.path().extension() == ".sfs")
+            {
+                out.push_back(entry.path());
+            }
         }
     }
     std::sort(out.begin(), out.end());
@@ -113,10 +114,9 @@ constexpr int kBlock = 256;
 
 } // namespace
 
-TEST_CASE("Contract presets exist (presets/contract/ is populated)", "[contract][preset]")
+TEST_CASE("Contract presets exist (presets/{contract,factory}/ is populated)", "[contract][preset]")
 {
     const auto presets = listPresets();
-    INFO("preset directory: " << presetDir().string());
     REQUIRE_FALSE(presets.empty());
 }
 
