@@ -6,6 +6,10 @@
 #include "PluginProcessor.h"
 
 #include "PluginEditor.h"
+#include "preset/preset.h"
+
+#include <ctime>
+#include <string>
 
 namespace sfs::plugin
 {
@@ -380,6 +384,226 @@ void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
             left[i] = 0.5f * (left[i] + tmpR[static_cast<std::size_t>(i)]);
         }
     }
+}
+
+// ----- Preset I/O ---------------------------------------------------------
+
+namespace
+{
+
+[[nodiscard]] juce::String iso8601Now()
+{
+    const std::time_t now = std::time(nullptr);
+    std::tm gmt{};
+#if defined(_WIN32)
+    gmtime_s(&gmt, &now);
+#else
+    gmtime_r(&now, &gmt);
+#endif
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &gmt);
+    return juce::String(buf);
+}
+
+[[nodiscard]] const char* topologyToString(int idx)
+{
+    return (idx == 1) ? "torus_32" : "ring";
+}
+
+[[nodiscard]] const char* shapeIdxToString(int idx)
+{
+    static const char* kNames[5] = {"sine", "saw", "square", "fmpair", "noise"};
+    return (idx >= 0 && idx < 5) ? kNames[idx] : "sine";
+}
+
+[[nodiscard]] sfs::preset::PresetShapeDistribution shapeIdxToDistribution(int idx)
+{
+    sfs::preset::PresetShapeDistribution d{0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    switch (idx)
+    {
+    case 1:
+        d.saw = 1.0f;
+        break;
+    case 2:
+        d.square = 1.0f;
+        break;
+    case 3:
+        d.fmpair = 1.0f;
+        break;
+    case 4:
+        d.noise = 1.0f;
+        break;
+    default:
+        d.sine = 1.0f;
+        break;
+    }
+    return d;
+}
+
+[[nodiscard]] int shapeStringToIdx(const std::string& s)
+{
+    if (s == "saw")
+    {
+        return 1;
+    }
+    if (s == "square")
+    {
+        return 2;
+    }
+    if (s == "fmpair")
+    {
+        return 3;
+    }
+    if (s == "noise")
+    {
+        return 4;
+    }
+    return 0;
+}
+
+[[nodiscard]] int dominantShapeIdx(const sfs::preset::PresetShapeDistribution& d)
+{
+    const float v[5] = {d.sine, d.saw, d.square, d.fmpair, d.noise};
+    int best = 0;
+    float bestVal = v[0];
+    for (int i = 1; i < 5; ++i)
+    {
+        if (v[i] > bestVal)
+        {
+            bestVal = v[i];
+            best = i;
+        }
+    }
+    return best;
+}
+
+[[nodiscard]] int topologyStringToIdx(const std::string& s)
+{
+    return (s == "ring") ? 0 : 1;
+}
+
+} // namespace
+
+bool SfsAudioProcessor::loadPresetFromFile(const juce::String& path, juce::String& errorOut)
+{
+    sfs::preset::Preset p;
+    try
+    {
+        p = sfs::preset::Preset::loadFromFile(path.toStdString());
+    }
+    catch (const sfs::preset::PresetParseError& e)
+    {
+        errorOut = juce::String(e.what());
+        return false;
+    }
+
+    // Write into the AudioParameters; processBlock picks them up next.
+    *tensionParam_ = p.macros.tension;
+    *dampingParam_ = p.macros.damping;
+    *densityParam_ = p.macros.density;
+    *migrationParam_ = p.macros.migration;
+    *coherenceParam_ = p.macros.coherence;
+    *excitationParam_ = p.macros.excitation;
+    *topologyParam_ = topologyStringToIdx(p.structural.topology);
+    *shapeParam_ = dominantShapeIdx(p.agents.shape_distribution);
+
+    // ENV1 — preset times are seconds, host params are ms (sfs-spec/09 §3.4
+    // log-scaled range, attached to the same AudioParameterFloat).
+    *attackMsParam_ = p.env1.attack * 1000.0f;
+    *decayMsParam_ = p.env1.decay * 1000.0f;
+    *sustainLevelParam_ = juce::jlimit(0.0f, 1.0f, p.env1.sustain);
+    *releaseMsParam_ = p.env1.release * 1000.0f;
+
+    // LFOs (4): rate Hz + shape index.
+    static const juce::StringArray kLfoShapes{"sine", "triangle", "saw", "square", "sample_hold"};
+    for (int i = 0; i < kLfoCount; ++i)
+    {
+        const auto& l = p.lfos[static_cast<std::size_t>(i)];
+        *lfoRateParams_[static_cast<std::size_t>(i)] = juce::jlimit(0.05f, 20.0f, l.rate_hz);
+        const int shapeIdx = std::max(0, kLfoShapes.indexOf(juce::String(l.shape), false, false));
+        *lfoShapeParams_[static_cast<std::size_t>(i)] = shapeIdx;
+    }
+
+    // Mod-matrix slot depths (4 active slots) — slot index 0..3 maps to
+    // the existing fixed source/dest pairs in the AudioParameter list.
+    auto slotDepth = [&](int idx) -> float
+    {
+        const auto& s = p.mod_matrix[static_cast<std::size_t>(idx)];
+        return s.active ? juce::jlimit(-1.0f, 1.0f, s.depth) : 0.0f;
+    };
+    *slot0DepthParam_ = slotDepth(0);
+    *slot1DepthParam_ = slotDepth(1);
+    *slot2DepthParam_ = slotDepth(2);
+    *slot3DepthParam_ = slotDepth(3);
+
+    currentPresetName_ = juce::String(p.metadata.name);
+    return true;
+}
+
+bool SfsAudioProcessor::savePresetToFile(const juce::String& path,
+                                         const juce::String& name,
+                                         const juce::String& author,
+                                         const juce::String& category,
+                                         const juce::StringArray& tags,
+                                         const juce::String& description,
+                                         juce::String& errorOut)
+{
+    sfs::preset::Preset p;
+    p.metadata.name = name.toStdString();
+    p.metadata.author = author.toStdString();
+    p.metadata.category = category.toStdString();
+    for (const auto& t : tags)
+    {
+        p.metadata.tags.push_back(t.toStdString());
+    }
+    p.metadata.created = iso8601Now().toStdString();
+    p.metadata.modified = p.metadata.created;
+    p.metadata.description = description.toStdString();
+    p.macros.tension = tensionParam_->get();
+    p.macros.damping = dampingParam_->get();
+    p.macros.density = densityParam_->get();
+    p.macros.migration = migrationParam_->get();
+    p.macros.coherence = coherenceParam_->get();
+    p.macros.excitation = excitationParam_->get();
+    p.structural.topology = topologyToString(topologyParam_->getIndex());
+    p.agents.shape_distribution = shapeIdxToDistribution(shapeParam_->getIndex());
+    p.env1.attack = attackMsParam_->get() / 1000.0f;
+    p.env1.decay = decayMsParam_->get() / 1000.0f;
+    p.env1.sustain = sustainLevelParam_->get();
+    p.env1.release = releaseMsParam_->get() / 1000.0f;
+    static const char* kLfoShapeStrings[5] = {"sine", "triangle", "saw", "square", "sample_hold"};
+    for (int i = 0; i < kLfoCount; ++i)
+    {
+        auto& l = p.lfos[static_cast<std::size_t>(i)];
+        l.rate_hz = lfoRateParams_[static_cast<std::size_t>(i)]->get();
+        const int s = lfoShapeParams_[static_cast<std::size_t>(i)]->getIndex();
+        l.shape = kLfoShapeStrings[std::clamp(s, 0, 4)];
+    }
+    // 4 active mod-matrix slots map to the 4 fixed source/dest pairs.
+    auto setSlot = [&](int idx, const char* src, const char* dst, float depth)
+    {
+        auto& slot = p.mod_matrix[static_cast<std::size_t>(idx)];
+        slot.active = (depth != 0.0f);
+        slot.source = src;
+        slot.destination = dst;
+        slot.depth = depth;
+    };
+    setSlot(0, "MIDI_CC1", "MIGRATION", slot0DepthParam_->get());
+    setSlot(1, "LFO1", "TENSION", slot1DepthParam_->get());
+    setSlot(2, "LFO2", "COHERENCE", slot2DepthParam_->get());
+    setSlot(3, "KEY_VELOCITY", "EXCITATION", slot3DepthParam_->get());
+
+    try
+    {
+        p.saveToFile(path.toStdString());
+    }
+    catch (const sfs::preset::PresetParseError& e)
+    {
+        errorOut = juce::String(e.what());
+        return false;
+    }
+    currentPresetName_ = name;
+    return true;
 }
 
 } // namespace sfs::plugin

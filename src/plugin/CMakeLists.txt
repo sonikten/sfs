@@ -31,6 +31,7 @@ target_link_libraries (sfs_plugin_core
     PUBLIC
         SFS::Dsp
         SFS::Engine
+        SFS::Preset
         SFS::DeterminismFlags
         juce::juce_audio_processors
         juce::juce_audio_utils

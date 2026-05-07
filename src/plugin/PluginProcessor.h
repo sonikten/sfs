@@ -77,6 +77,25 @@ public:
     void getStateInformation(juce::MemoryBlock& dest) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    // Phase 4 §B14a — `.sfs` preset I/O. loadPresetFromFile parses the
+    // file, writes the values into the host AudioParameters (the engine
+    // picks them up on the next processBlock fan-out), and updates
+    // currentPresetName_. Returns true on success; on failure the
+    // parameters and engine state are left untouched and the error
+    // string is set. savePresetToFile reads the current parameter
+    // values, packages them into a Preset, and writes the JSON to disk
+    // (atomic via `.tmp` + rename).
+    bool loadPresetFromFile(const juce::String& path, juce::String& errorOut);
+    bool savePresetToFile(const juce::String& path,
+                          const juce::String& name,
+                          const juce::String& author,
+                          const juce::String& category,
+                          const juce::StringArray& tags,
+                          const juce::String& description,
+                          juce::String& errorOut);
+
+    [[nodiscard]] const juce::String& currentPresetName() const noexcept { return currentPresetName_; }
+
 private:
     static constexpr int kSubstrateCells = 1024;
     static constexpr int kAgentCount = 16;
@@ -117,6 +136,8 @@ private:
     juce::AudioParameterFloat* slot1DepthParam_ = nullptr; // LFO1 → TENSION
     juce::AudioParameterFloat* slot2DepthParam_ = nullptr; // LFO2 → COHERENCE
     juce::AudioParameterFloat* slot3DepthParam_ = nullptr; // KeyVel → EXCITATION
+
+    juce::String currentPresetName_{"Init"};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SfsAudioProcessor)
 };
