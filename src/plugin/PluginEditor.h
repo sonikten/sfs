@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include "HeaderBar.h"
 #include "MacroPanel.h"
 #include "PluginProcessor.h"
 
@@ -58,6 +59,7 @@ public:
     void resized() override;
 
 private:
+    HeaderBar headerBar_;
     SubstrateView substrateView_;
     MacroPanel macroPanel_;
     juce::GenericAudioProcessorEditor advancedKnobs_;

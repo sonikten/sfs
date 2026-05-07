@@ -213,16 +213,18 @@ void SubstrateView::paint2D(juce::Graphics& g, juce::Rectangle<float> bounds)
 
 SfsEditor::SfsEditor(SfsAudioProcessor& processor)
     : juce::AudioProcessorEditor(processor),
+      headerBar_(processor),
       substrateView_(processor),
       macroPanel_(processor),
       advancedKnobs_(processor)
 {
+    addAndMakeVisible(headerBar_);
     addAndMakeVisible(substrateView_);
     addAndMakeVisible(macroPanel_);
     addAndMakeVisible(advancedKnobs_);
     setResizable(true, true);
     setResizeLimits(640, 600, 1600, 1400);
-    setSize(960, 800);
+    setSize(960, 820);
 }
 
 void SfsEditor::paint(juce::Graphics& g)
@@ -233,10 +235,11 @@ void SfsEditor::paint(juce::Graphics& g)
 void SfsEditor::resized()
 {
     auto area = getLocalBounds();
-    // Top: substrate visualiser (~35% of height — Doc 07 §2 says ~40%
-    // for the visualiser; we leave room for the macro panel below).
-    substrateView_.setBounds(area.removeFromTop(static_cast<int>(area.getHeight() * 0.35f)));
-    // Middle: curated macro panel (~22% of height: 6 knobs + 2 selectors).
+    // Header strip: 48 px tall per Doc 07 §3.
+    headerBar_.setBounds(area.removeFromTop(48));
+    // Substrate visualiser ~35% of remaining height.
+    substrateView_.setBounds(area.removeFromTop(static_cast<int>(area.getHeight() * 0.36f)));
+    // Macro panel ~30% of remaining.
     macroPanel_.setBounds(area.removeFromTop(static_cast<int>(area.getHeight() * 0.30f)));
     // Bottom: GenericAudioProcessorEditor as the "advanced parameters"
     // panel until the rest of the Phase 4 GUI panels (mod matrix, env/LFO,

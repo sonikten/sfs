@@ -19,6 +19,7 @@ add_library (sfs_plugin_core STATIC
     PluginProcessor.cpp
     PluginEditor.cpp
     MacroPanel.cpp
+    HeaderBar.cpp
 )
 
 add_library (SFS::PluginCore ALIAS sfs_plugin_core)
