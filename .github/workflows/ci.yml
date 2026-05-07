@@ -81,7 +81,18 @@ jobs:
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSFS_BUILD_PLUGIN=ON -DSFS_BUILD_TOOLS=ON -DSFS_BUILD_TESTS=ON
 
       - name: Build (top-level)
-        run: cmake --build build --config Release --parallel
+        # Linux runners OOM-kill cc1plus when building JUCE TUs across multiple
+        # targets at full --parallel (default = N CPUs). Each target re-builds
+        # the same heavy juce_gui_basics / juce_audio_devices / juce_audio_formats
+        # TUs in its own object dir, and 4 of those at once peaks > 16 GB.
+        # Cap to 2 jobs on Linux only; macOS + Windows handle full parallel fine.
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            cmake --build build --config Release -j 2
+          else
+            cmake --build build --config Release --parallel
+          fi
 
       - name: Run unit tests
         working-directory: build
@@ -100,7 +111,13 @@ jobs:
       # P0.9: see .github/workflows/pluginval.yml — pluginval Level 1.
 
       - name: Build VST3 + render rig
-        run: cmake --build build --target sfs_plugin_VST3 sfs_render --config Release --parallel
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            cmake --build build --target sfs_plugin_VST3 sfs_render --config Release -j 2
+          else
+            cmake --build build --target sfs_plugin_VST3 sfs_render --config Release --parallel
+          fi
 
   format:
     name: clang-format check
