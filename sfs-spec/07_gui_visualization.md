@@ -16,7 +16,7 @@ Five principles guide the GUI:
 
 ## 2. Layout overview
 
-The plug-in window is **resizable** within `[800, 1600] × [600, 1200]` pixels, default `1280 × 800`. The internal layout uses a responsive grid; below 1024×640 the modulation matrix collapses into a tab.
+The plug-in window is **resizable** within `[720, 1280] × [560, 800]` pixels, default `960 × 740`. The default size targets a typical DAW plug-in window without forcing the user to scroll on a 1080p display. The internal layout uses a responsive grid; below 1024×640 the modulation matrix collapses into a tab. (The Phase 4 ship enforces the size budget via the `editor_layout_test` integration assertion `width ≤ 1280 ∧ height ≤ 800`; the ≥ 1280 wide range from earlier drafts is deferred to a Phase 5 layout pass.)
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐

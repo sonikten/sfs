@@ -4,7 +4,7 @@ A VST3 instrument plug-in built around a stigmergic synthesis paradigm: per-voic
 
 ## Status
 
-Phase 3 of 5 (per `docs/phase-plans/phase-3.md`). The DSP engine, polyphony, MPE, ambisonic / surround output, and a working VST3 host wrapper are all on `main`; the curated GUI, preset format, and 128-preset factory palette are Phase 4 work. Released as open source — see [Licensing](#licensing).
+Phase 4 of 5 (per `docs/phase-plans/phase-4.md`). Phase 4 gate met at tag `phase-4-gate` — DSP engine, polyphony, MPE, ambisonic / surround output, VST3 wrapper, curated GUI, preset format with 128-preset factory palette, and host-integration regression coverage are all on `main`. Released as open source — see [Licensing](#licensing).
 
 What's shipping today:
 
@@ -16,15 +16,19 @@ What's shipping today:
 - **MPE Note Expression**: per-channel pitch bend (±48 st), pressure, and timbre (CC74).
 - **Output layouts**: mono, stereo, 4-channel ambisonic (W, X, Y, Z=0), 5.1 surround (ITU-R BS.775 angles on the 2D torus), and 7.1.4 immersive (floor channels at y < 0.3·Ny, height channels at y > 0.7·Ny on the 2D torus).
 - **Optional voice-pool threading**: opt-in via `VoiceManager::enableThreading(N)` to distribute the 8 per-voice renders across N workers (default off; bit-exact identical to serial regardless of worker count).
-- **GUI** (Phase 2/3 diagnostic form): real-time substrate visualiser (1D scope and 2D heatmap) plus auto-generated knob panel for every host parameter.
+- **GUI**: 960×740 default, resizable in [720×560, 1280×800]. Header bar with categorised factory preset popup + Load/Save dialogs; substrate visualiser (1D scope + 2D heatmap, agent dots, harvester markers); curated rotary `MacroPanel` (6 macros + Topology + Shape) and `AdvancedPanel` (ENV1 ADSR row, 4× LFO rate+shape, 4 mod-matrix depth knobs); footer with voice count / latency / topology readout.
+- **Factory palette**: 128 `.sfs` presets across Init / Drone / Organic / Pitched / Glitch / Hybrid; ≥ 14 contract-tagged presets per corner pass the spectral / pitch / onset gate (`tests/contract/preset_contract_test.cpp`).
+- **Preset format**: `.sfs` JSON with magic / format-version / `_audio_hash` (30 s C4 SHA-256); atomic save (`.tmp` + rename); round-trip every persisted field.
+- **Host-integration regression coverage** (`tests/integration/`): 16 cases covering preset playback through the host-param load path, GUI editor layout (size, child bounds, rotary-only sliders), preset-browse workflows (mid-note switch, MPE state leak, idle gap, rapid cycling), and audio-correctness assertions (ENV1 envelope shape, mod-matrix depth magnitude, topology routing isolation, host-param ≡ engine direct-call parity).
 
 What's deferred:
 
-- Curated GUI layout + preset browser (Phase 4).
-- 128 factory presets (Phase 4 sound design).
 - Möbius / Klein topologies, higher-order ambisonics, AU / AAX wrappers.
+- Full 16-slot mod-matrix editor with source/destination pickers + visual ADSR drag-points + per-LFO waveform editors (B17–B19; the Phase 4 ship surfaces them as labelled rotary knobs in the AdvancedPanel).
+- Preferences pane, in-app manual, responsive collapse-to-tab below 1024×640 (B22–B24).
+- `.sfsp` pack loader + factory pack bundle (A11/A12 — factory ships as a folder).
 
-See `docs/phase-plans/phase-3-gate-evidence.md` for the full Phase 3 deliverable matrix.
+See `docs/phase-plans/phase-4-gate-evidence.md` for the full Phase 4 deliverable matrix.
 
 ## Document map
 
