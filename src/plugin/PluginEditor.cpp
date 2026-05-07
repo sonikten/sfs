@@ -338,17 +338,17 @@ SfsEditor::SfsEditor(SfsAudioProcessor& processor)
       headerBar_(processor),
       substrateView_(processor),
       macroPanel_(processor),
-      advancedKnobs_(processor),
+      advancedPanel_(processor),
       footer_(processor)
 {
     addAndMakeVisible(headerBar_);
     addAndMakeVisible(substrateView_);
     addAndMakeVisible(macroPanel_);
-    addAndMakeVisible(advancedKnobs_);
+    addAndMakeVisible(advancedPanel_);
     addAndMakeVisible(footer_);
     setResizable(true, true);
-    setResizeLimits(640, 620, 1600, 1400);
-    setSize(960, 850);
+    setResizeLimits(720, 560, 1280, 800);
+    setSize(960, 740);
 }
 
 void SfsEditor::paint(juce::Graphics& g)
@@ -359,18 +359,24 @@ void SfsEditor::paint(juce::Graphics& g)
 void SfsEditor::resized()
 {
     auto area = getLocalBounds();
-    // Header strip: 48 px tall per Doc 07 §3.
-    headerBar_.setBounds(area.removeFromTop(48));
+    // Header strip: 44 px tall (Doc 07 §3 — was 48; trimmed for vertical budget).
+    headerBar_.setBounds(area.removeFromTop(44));
     // Footer strip: 22 px tall (Doc 07 §8 status bar).
     footer_.setBounds(area.removeFromBottom(22));
-    // Substrate visualiser ~35% of remaining height.
-    substrateView_.setBounds(area.removeFromTop(static_cast<int>(area.getHeight() * 0.36f)));
-    // Macro panel ~30% of remaining.
-    macroPanel_.setBounds(area.removeFromTop(static_cast<int>(area.getHeight() * 0.30f)));
-    // Bottom: GenericAudioProcessorEditor as the "advanced parameters"
-    // panel until the rest of the Phase 4 GUI panels (mod matrix, env/LFO,
-    // preset browser) replace it.
-    advancedKnobs_.setBounds(area);
+
+    // Three-panel stack at default 740 px window (after header+footer = 674):
+    //   substrate visualiser:  240 px (≈ 36 %)
+    //   macro panel:           120 px (≈ 18 %)
+    //   advanced panel:        remainder, ~314 px
+    // Proportions chosen so the substrate stays the visual focus while the
+    // ADSR/LFO/Matrix knob cluster fits without clipping. Heights flex on
+    // resize since the user can drag the window between 560 and 800 px tall.
+    const int totalH = area.getHeight();
+    const int substrateH = juce::jlimit(180, 360, static_cast<int>(totalH * 0.36f));
+    const int macroH = juce::jlimit(110, 160, static_cast<int>(totalH * 0.18f));
+    substrateView_.setBounds(area.removeFromTop(substrateH));
+    macroPanel_.setBounds(area.removeFromTop(macroH));
+    advancedPanel_.setBounds(area);
 }
 
 } // namespace sfs::plugin

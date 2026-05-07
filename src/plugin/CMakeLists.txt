@@ -19,6 +19,7 @@ add_library (sfs_plugin_core STATIC
     PluginProcessor.cpp
     PluginEditor.cpp
     MacroPanel.cpp
+    AdvancedPanel.cpp
     HeaderBar.cpp
     Footer.cpp
 )

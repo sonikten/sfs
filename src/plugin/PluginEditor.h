@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include "AdvancedPanel.h"
 #include "Footer.h"
 #include "HeaderBar.h"
 #include "MacroPanel.h"
@@ -79,7 +80,7 @@ private:
     HeaderBar headerBar_;
     SubstrateView substrateView_;
     MacroPanel macroPanel_;
-    juce::GenericAudioProcessorEditor advancedKnobs_;
+    AdvancedPanel advancedPanel_;
     Footer footer_;
 };
 

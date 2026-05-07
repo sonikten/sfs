@@ -56,6 +56,34 @@ public:
     [[nodiscard]] juce::AudioParameterFloat* excitationParam() noexcept { return excitationParam_; }
     [[nodiscard]] juce::AudioParameterChoice* topologyParam() noexcept { return topologyParam_; }
     [[nodiscard]] juce::AudioParameterChoice* shapeParam() noexcept { return shapeParam_; }
+    [[nodiscard]] juce::AudioParameterFloat* attackMsParam() noexcept { return attackMsParam_; }
+    [[nodiscard]] juce::AudioParameterFloat* decayMsParam() noexcept { return decayMsParam_; }
+    [[nodiscard]] juce::AudioParameterFloat* sustainLevelParam() noexcept { return sustainLevelParam_; }
+    [[nodiscard]] juce::AudioParameterFloat* releaseMsParam() noexcept { return releaseMsParam_; }
+    [[nodiscard]] juce::AudioParameterFloat* lfoRateParam(int i) noexcept
+    {
+        return (i >= 0 && i < kLfoCount) ? lfoRateParams_[static_cast<std::size_t>(i)] : nullptr;
+    }
+    [[nodiscard]] juce::AudioParameterChoice* lfoShapeParam(int i) noexcept
+    {
+        return (i >= 0 && i < kLfoCount) ? lfoShapeParams_[static_cast<std::size_t>(i)] : nullptr;
+    }
+    [[nodiscard]] juce::AudioParameterFloat* modSlotDepthParam(int i) noexcept
+    {
+        switch (i)
+        {
+        case 0:
+            return slot0DepthParam_;
+        case 1:
+            return slot1DepthParam_;
+        case 2:
+            return slot2DepthParam_;
+        case 3:
+            return slot3DepthParam_;
+        default:
+            return nullptr;
+        }
+    }
 
     // ----- Identity -------------------------------------------------------
     const juce::String getName() const override { return "SFS (Phase 2)"; }

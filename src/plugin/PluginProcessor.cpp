@@ -497,31 +497,58 @@ bool SfsAudioProcessor::loadPresetFromFile(const juce::String& path, juce::Strin
         return false;
     }
 
-    // Write into the AudioParameters; processBlock picks them up next.
-    *tensionParam_ = p.macros.tension;
-    *dampingParam_ = p.macros.damping;
-    *densityParam_ = p.macros.density;
-    *migrationParam_ = p.macros.migration;
-    *coherenceParam_ = p.macros.coherence;
-    *excitationParam_ = p.macros.excitation;
-    *topologyParam_ = topologyStringToIdx(p.structural.topology);
-    *shapeParam_ = dominantShapeIdx(p.agents.shape_distribution);
+    // Wrap each parameter write in beginChangeGesture / endChangeGesture
+    // so VST3 hosts (Ableton Live in particular) recognise these as
+    // explicit user changes and don't overwrite them from cached
+    // automation state on the next block. Without the gesture markers,
+    // Live treats the change as ambient and snaps the parameter back to
+    // its track-stored value — symptom: "preset loads but no audio plays"
+    // because density / excitation revert to the previous track value.
+    auto setFloat = [](juce::AudioParameterFloat* param, float value)
+    {
+        if (param == nullptr)
+        {
+            return;
+        }
+        param->beginChangeGesture();
+        *param = value;
+        param->endChangeGesture();
+    };
+    auto setChoice = [](juce::AudioParameterChoice* param, int idx)
+    {
+        if (param == nullptr)
+        {
+            return;
+        }
+        param->beginChangeGesture();
+        *param = idx;
+        param->endChangeGesture();
+    };
+
+    setFloat(tensionParam_, p.macros.tension);
+    setFloat(dampingParam_, p.macros.damping);
+    setFloat(densityParam_, p.macros.density);
+    setFloat(migrationParam_, p.macros.migration);
+    setFloat(coherenceParam_, p.macros.coherence);
+    setFloat(excitationParam_, p.macros.excitation);
+    setChoice(topologyParam_, topologyStringToIdx(p.structural.topology));
+    setChoice(shapeParam_, dominantShapeIdx(p.agents.shape_distribution));
 
     // ENV1 — preset times are seconds, host params are ms (sfs-spec/09 §3.4
     // log-scaled range, attached to the same AudioParameterFloat).
-    *attackMsParam_ = p.env1.attack * 1000.0f;
-    *decayMsParam_ = p.env1.decay * 1000.0f;
-    *sustainLevelParam_ = juce::jlimit(0.0f, 1.0f, p.env1.sustain);
-    *releaseMsParam_ = p.env1.release * 1000.0f;
+    setFloat(attackMsParam_, p.env1.attack * 1000.0f);
+    setFloat(decayMsParam_, p.env1.decay * 1000.0f);
+    setFloat(sustainLevelParam_, juce::jlimit(0.0f, 1.0f, p.env1.sustain));
+    setFloat(releaseMsParam_, p.env1.release * 1000.0f);
 
     // LFOs (4): rate Hz + shape index.
     static const juce::StringArray kLfoShapes{"sine", "triangle", "saw", "square", "sample_hold"};
     for (int i = 0; i < kLfoCount; ++i)
     {
         const auto& l = p.lfos[static_cast<std::size_t>(i)];
-        *lfoRateParams_[static_cast<std::size_t>(i)] = juce::jlimit(0.05f, 20.0f, l.rate_hz);
+        setFloat(lfoRateParams_[static_cast<std::size_t>(i)], juce::jlimit(0.05f, 20.0f, l.rate_hz));
         const int shapeIdx = std::max(0, kLfoShapes.indexOf(juce::String(l.shape), false, false));
-        *lfoShapeParams_[static_cast<std::size_t>(i)] = shapeIdx;
+        setChoice(lfoShapeParams_[static_cast<std::size_t>(i)], shapeIdx);
     }
 
     // Mod-matrix slot depths (4 active slots) — slot index 0..3 maps to
@@ -531,12 +558,13 @@ bool SfsAudioProcessor::loadPresetFromFile(const juce::String& path, juce::Strin
         const auto& s = p.mod_matrix[static_cast<std::size_t>(idx)];
         return s.active ? juce::jlimit(-1.0f, 1.0f, s.depth) : 0.0f;
     };
-    *slot0DepthParam_ = slotDepth(0);
-    *slot1DepthParam_ = slotDepth(1);
-    *slot2DepthParam_ = slotDepth(2);
-    *slot3DepthParam_ = slotDepth(3);
+    setFloat(slot0DepthParam_, slotDepth(0));
+    setFloat(slot1DepthParam_, slotDepth(1));
+    setFloat(slot2DepthParam_, slotDepth(2));
+    setFloat(slot3DepthParam_, slotDepth(3));
 
     currentPresetName_ = juce::String(p.metadata.name);
+    updateHostDisplay();
     return true;
 }
 
