@@ -27,7 +27,7 @@ constexpr float kPi = 3.14159265358979323846f;
 TEST_CASE("dm_cos matches std::cos within Phase 2 budget on principal range", "[dsp][dm_cos]")
 {
     constexpr int kSamples = 1024;
-    constexpr float kBudget = 3e-6f; // dm_cos = dm_sin(x + π/2); float32 kPi-rounding budget
+    constexpr float kBudget = 1e-6f; // dm_cos = dm_sin(x + π/2); Cody-Waite reduction
     float maxError = 0.0f;
     for (int i = 0; i <= kSamples; ++i)
     {
@@ -44,8 +44,8 @@ TEST_CASE("dm_cos matches std::cos within Phase 2 budget on principal range", "[
 
 TEST_CASE("dm_cos sentinel values", "[dsp][dm_cos]")
 {
-    REQUIRE(std::fabs(sfs::dsp::dm_cos(0.0f) - 1.0f) < 3e-6f);
-    REQUIRE(std::fabs(sfs::dsp::dm_cos(kPi) + 1.0f) < 3e-6f);
+    REQUIRE(std::fabs(sfs::dsp::dm_cos(0.0f) - 1.0f) < 1e-6f);
+    REQUIRE(std::fabs(sfs::dsp::dm_cos(kPi) + 1.0f) < 1e-6f);
     REQUIRE(std::fabs(sfs::dsp::dm_cos(kPi / 2.0f) - 0.0f) < 3e-6f);
     REQUIRE(std::fabs(sfs::dsp::dm_cos(-kPi / 2.0f) - 0.0f) < 3e-6f);
 }

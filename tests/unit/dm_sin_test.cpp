@@ -24,12 +24,10 @@ namespace
 constexpr float kPi = 3.14159265358979323846f;
 constexpr float kTwoPi = 6.28318530717958647692f;
 
-// Phase 2 budget: 7th-order Hastings + float32 kPi-rounded fold lands at
-// ~2e-6. Spec target 1e-6 (sfs-spec/06 §1.3) is a Phase 3 task — needs
-// Cody-Waite-style multi-chunk π subtraction in the range reduction.
-// Polynomial-coefficient tightening alone won't get there; the bottleneck
-// is the kPi fold, not the polynomial itself.
-constexpr float kPrincipalWorstCaseError = 3.0e-6f;
+// Phase 3 budget: Cody-Waite range reduction + 9th-order Taylor in double
+// precision lands at <1e-6 across [-π, π]. Spec target met
+// (sfs-spec/06 §1.3).
+constexpr float kPrincipalWorstCaseError = 1.0e-6f;
 
 } // namespace
 
