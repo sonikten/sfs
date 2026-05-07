@@ -201,6 +201,12 @@ if (SFS_BUILD_TOOLS AND SFS_BUILD_PLUGIN)
     add_subdirectory(tools/render_presets)
 endif()
 
+# Preset audio-hash render harness — JUCE-free, depends only on the
+# engine + preset modules.
+if (SFS_BUILD_TOOLS)
+    add_subdirectory(tools/sfs_preset_render)
+endif()
+
 # CPU profile micro-benchmark — JUCE-free, only depends on the engine.
 if (SFS_BUILD_TOOLS)
     add_subdirectory(tools/sfs_profile)
