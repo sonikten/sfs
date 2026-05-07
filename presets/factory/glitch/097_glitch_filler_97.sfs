@@ -1,0 +1,137 @@
+{
+  "_magic": "SFS-1.00",
+  "format_version": "1.0",
+  "engine_version": "1.0.0",
+  "metadata": {
+    "name": "Glitch Filler 97",
+    "author": "SFS Factory",
+    "category": "Glitch",
+    "tags": [
+      "glitch",
+      "filler",
+      "contract:glitch"
+    ],
+    "created": "2026-05-07T20:00:00Z",
+    "modified": "2026-05-07T20:00:00Z",
+    "description": "Glitch filler slot 97. Generated from the Init Glitch template; S&H LFOs on DENSITY and EXCITATION at depth ≥ 0.4 produce ≥ 5 onsets in 5 s."
+  },
+  "seed": "0x5F5F5F5F5F5F5F5F",
+  "macros": {
+    "tension": 0.5389,
+    "damping": 0.2429,
+    "density": 0.4744,
+    "migration": 0.1368,
+    "coherence": 0.5889,
+    "excitation": 0.5149
+  },
+  "structural": {
+    "topology": "ring",
+    "aspect": 1.0,
+    "substrate_size": 1024,
+    "deposit_kernel": "linear",
+    "read_kernel": "linear"
+  },
+  "agents": {
+    "max_active": 16,
+    "harmonic_set": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "shape_distribution": {
+      "sine": 0.4,
+      "saw": 0.0,
+      "square": 0.0,
+      "fmpair": 0.4,
+      "noise": 0.2
+    },
+    "shape_param_default": {
+      "fm_ratio_index": 0.6,
+      "fm_index_index": 0.5
+    },
+    "detune_scale": 0.0581
+  },
+  "envelopes": {
+    "env1": {
+      "attack": 0.01,
+      "decay": 0.12,
+      "sustain": 0.75,
+      "release": 0.25
+    },
+    "env2": {
+      "attack": 0.05,
+      "decay": 0.3,
+      "sustain": 1.0,
+      "release": 0.5
+    }
+  },
+  "lfos": [
+    {
+      "rate_hz": 0.5,
+      "depth": 1.0,
+      "shape": "sine",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 2.0,
+      "depth": 1.0,
+      "shape": "triangle",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 6.0,
+      "depth": 1.0,
+      "shape": "sample_hold",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 13.3294,
+      "depth": 1.0,
+      "shape": "sample_hold",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    }
+  ],
+  "modulation_matrix": {
+    "slots": [
+      {
+        "active": true,
+        "source": "LFO3",
+        "destination": "DENSITY",
+        "depth": 0.563,
+        "curve": "LINEAR"
+      },
+      {
+        "active": true,
+        "source": "LFO4",
+        "destination": "EXCITATION",
+        "depth": 0.4736,
+        "curve": "LINEAR"
+      }
+    ]
+  },
+  "harvesters": {
+    "spacing": 0.5,
+    "orbit_depth": 0.0,
+    "orbit_speed_hz": 0.05,
+    "orbit_shape": "circle"
+  },
+  "output": {
+    "master_gain_db": 0.0,
+    "pan": 0.0,
+    "limiter_active": false
+  },
+  "_audio_hash": "sha256:82608712e83b6d6d561d04e4353dc9fd3a7d3c8bcf8ddf2693d7c74f2e63482e"
+}

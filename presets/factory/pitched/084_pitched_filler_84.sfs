@@ -1,0 +1,118 @@
+{
+  "_magic": "SFS-1.00",
+  "format_version": "1.0",
+  "engine_version": "1.0.0",
+  "metadata": {
+    "name": "Pitched Filler 84",
+    "author": "SFS Factory",
+    "category": "Pitched",
+    "tags": [
+      "pitched",
+      "filler",
+      "contract:pitched"
+    ],
+    "created": "2026-05-07T20:00:00Z",
+    "modified": "2026-05-07T20:00:00Z",
+    "description": "Pitched filler slot 84. Generated from the Glass Pad template; coherence locked at 1.0 and migration at 0.0 to keep the played MIDI note as the perceived pitch."
+  },
+  "seed": "0x5F5F5F5F5F5F5F5F",
+  "macros": {
+    "tension": 0.5463,
+    "damping": 0.3828,
+    "density": 0.4112,
+    "migration": 0.0,
+    "coherence": 1.0,
+    "excitation": 0.0
+  },
+  "structural": {
+    "topology": "ring",
+    "aspect": 1.0,
+    "substrate_size": 1024,
+    "deposit_kernel": "linear",
+    "read_kernel": "linear"
+  },
+  "agents": {
+    "max_active": 8,
+    "harmonic_set": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "shape_distribution": {
+      "sine": 1.0,
+      "saw": 0.0,
+      "square": 0.0,
+      "fmpair": 0.0,
+      "noise": 0.0
+    },
+    "shape_param_default": {
+      "fm_ratio_index": 0.5,
+      "fm_index_index": 0.3
+    },
+    "detune_scale": 0.0
+  },
+  "envelopes": {
+    "env1": {
+      "attack": 0.0543,
+      "decay": 0.2646,
+      "sustain": 0.9166,
+      "release": 0.9444
+    },
+    "env2": {
+      "attack": 0.05,
+      "decay": 0.3,
+      "sustain": 1.0,
+      "release": 0.5
+    }
+  },
+  "lfos": [
+    {
+      "rate_hz": 0.5,
+      "depth": 1.0,
+      "shape": "sine",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 2.0,
+      "depth": 1.0,
+      "shape": "triangle",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 5.0,
+      "depth": 1.0,
+      "shape": "sine",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 7.0,
+      "depth": 1.0,
+      "shape": "sample_hold",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    }
+  ],
+  "modulation_matrix": {
+    "slots": []
+  },
+  "harvesters": {
+    "spacing": 0.5,
+    "orbit_depth": 0.0,
+    "orbit_speed_hz": 0.05,
+    "orbit_shape": "circle"
+  },
+  "output": {
+    "master_gain_db": 0.0,
+    "pan": 0.0,
+    "limiter_active": false
+  },
+  "_audio_hash": "sha256:442cc49cdc641fef5052405d53f41a288d06cddf89542682881a502904e5b47b"
+}

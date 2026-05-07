@@ -1,0 +1,136 @@
+{
+  "_magic": "SFS-1.00",
+  "format_version": "1.0",
+  "engine_version": "1.0.0",
+  "metadata": {
+    "name": "Hybrid Filler 113",
+    "author": "SFS Factory",
+    "category": "Hybrid",
+    "tags": [
+      "hybrid",
+      "filler"
+    ],
+    "created": "2026-05-07T20:00:00Z",
+    "modified": "2026-05-07T20:00:00Z",
+    "description": "Hybrid filler slot 113. Mid-range macros across all six axes; no contract tag (hybrids sit between corners by design)."
+  },
+  "seed": "0x5F5F5F5F5F5F5F5F",
+  "macros": {
+    "tension": 0.4061,
+    "damping": 0.3735,
+    "density": 0.5944,
+    "migration": 0.1071,
+    "coherence": 0.715,
+    "excitation": 0.2216
+  },
+  "structural": {
+    "topology": "ring",
+    "aspect": 1.0,
+    "substrate_size": 1024,
+    "deposit_kernel": "linear",
+    "read_kernel": "linear"
+  },
+  "agents": {
+    "max_active": 14,
+    "harmonic_set": [
+      1,
+      1.5,
+      2,
+      2.5,
+      3,
+      4,
+      5,
+      7
+    ],
+    "shape_distribution": {
+      "sine": 0.7,
+      "saw": 0.0,
+      "square": 0.0,
+      "fmpair": 0.2,
+      "noise": 0.1
+    },
+    "shape_param_default": {
+      "fm_ratio_index": 0.5,
+      "fm_index_index": 0.35
+    },
+    "detune_scale": 0.05
+  },
+  "envelopes": {
+    "env1": {
+      "attack": 0.1,
+      "decay": 0.4,
+      "sustain": 0.8,
+      "release": 1.5
+    },
+    "env2": {
+      "attack": 0.05,
+      "decay": 0.3,
+      "sustain": 1.0,
+      "release": 0.5
+    }
+  },
+  "lfos": [
+    {
+      "rate_hz": 0.2349,
+      "depth": 1.0,
+      "shape": "sine",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 0.2207,
+      "depth": 1.0,
+      "shape": "triangle",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 5.0,
+      "depth": 1.0,
+      "shape": "sine",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 7.0,
+      "depth": 1.0,
+      "shape": "sample_hold",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    }
+  ],
+  "modulation_matrix": {
+    "slots": [
+      {
+        "active": true,
+        "source": "LFO1",
+        "destination": "MIGRATION",
+        "depth": 0.2197,
+        "curve": "LINEAR"
+      },
+      {
+        "active": true,
+        "source": "LFO2",
+        "destination": "EXCITATION",
+        "depth": 0.199,
+        "curve": "LINEAR"
+      }
+    ]
+  },
+  "harvesters": {
+    "spacing": 0.5,
+    "orbit_depth": 0.0,
+    "orbit_speed_hz": 0.05,
+    "orbit_shape": "circle"
+  },
+  "output": {
+    "master_gain_db": 0.0,
+    "pan": 0.0,
+    "limiter_active": false
+  },
+  "_audio_hash": "sha256:1f429c14250d87df81e70bebd0cdc5ae7d6522ff70e3c4e38b7382ada01ece1e"
+}

@@ -1,0 +1,137 @@
+{
+  "_magic": "SFS-1.00",
+  "format_version": "1.0",
+  "engine_version": "1.0.0",
+  "metadata": {
+    "name": "Organic Filler 37",
+    "author": "SFS Factory",
+    "category": "Organic",
+    "tags": [
+      "organic",
+      "filler",
+      "contract:organic"
+    ],
+    "created": "2026-05-07T20:00:00Z",
+    "modified": "2026-05-07T20:00:00Z",
+    "description": "Organic filler slot 37. Generated from the Forest Breath template; high migration + LFO-driven motion preserves centroid stddev > 50 Hz."
+  },
+  "seed": "0x5F5F5F5F5F5F5F5F",
+  "macros": {
+    "tension": 0.5364,
+    "damping": 0.3183,
+    "density": 0.6236,
+    "migration": 0.7526,
+    "coherence": 0.4004,
+    "excitation": 0.4045
+  },
+  "structural": {
+    "topology": "ring",
+    "aspect": 1.0,
+    "substrate_size": 1024,
+    "deposit_kernel": "linear",
+    "read_kernel": "linear"
+  },
+  "agents": {
+    "max_active": 16,
+    "harmonic_set": [
+      1,
+      1.5,
+      2,
+      2.5,
+      3,
+      4,
+      5,
+      7
+    ],
+    "shape_distribution": {
+      "sine": 0.7,
+      "saw": 0.0,
+      "square": 0.0,
+      "fmpair": 0.2,
+      "noise": 0.1
+    },
+    "shape_param_default": {
+      "fm_ratio_index": 0.5,
+      "fm_index_index": 0.3
+    },
+    "detune_scale": 0.1131
+  },
+  "envelopes": {
+    "env1": {
+      "attack": 0.1,
+      "decay": 0.5,
+      "sustain": 0.8,
+      "release": 1.5
+    },
+    "env2": {
+      "attack": 0.05,
+      "decay": 0.3,
+      "sustain": 1.0,
+      "release": 0.5
+    }
+  },
+  "lfos": [
+    {
+      "rate_hz": 0.1738,
+      "depth": 1.0,
+      "shape": "sine",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 0.3084,
+      "depth": 1.0,
+      "shape": "triangle",
+      "sync": "free",
+      "phase": 0.25,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 5.0,
+      "depth": 1.0,
+      "shape": "sine",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 7.0,
+      "depth": 1.0,
+      "shape": "sample_hold",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    }
+  ],
+  "modulation_matrix": {
+    "slots": [
+      {
+        "active": true,
+        "source": "LFO1",
+        "destination": "EXCITATION",
+        "depth": 0.3216,
+        "curve": "LINEAR"
+      },
+      {
+        "active": true,
+        "source": "LFO2",
+        "destination": "MIGRATION",
+        "depth": 0.3366,
+        "curve": "LINEAR"
+      }
+    ]
+  },
+  "harvesters": {
+    "spacing": 0.5,
+    "orbit_depth": 0.0,
+    "orbit_speed_hz": 0.05,
+    "orbit_shape": "circle"
+  },
+  "output": {
+    "master_gain_db": 0.0,
+    "pan": 0.0,
+    "limiter_active": false
+  },
+  "_audio_hash": "sha256:314bf87e096b2b315f685f5bd953fb33170f730e3560078950ca81be811784e4"
+}
