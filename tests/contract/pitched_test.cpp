@@ -155,11 +155,8 @@ PitchResult runChromaticSweep(sfs::engine::Topology topology, int midiLo, int mi
 
         const int analysisStart = static_cast<int>(kAnalysisStart * static_cast<float>(kSampleRate));
         const int analysisLen = totalSamples - analysisStart;
-        if (analysisLen <= 0)
-        {
-            ++result.failed;
-            continue;
-        }
+        // analysisLen is positive by the constexpr kHoldSeconds > kAnalysisStart
+        // contract; no runtime check needed (MSVC /WX flags the dead comparison).
 
         const float estimatedHz = autocorrelationPitchHz(mono.data() + analysisStart,
                                                          analysisLen,
