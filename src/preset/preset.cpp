@@ -4,11 +4,13 @@
 
 #include <nlohmann/json.hpp>
 
+#include <charconv>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <system_error>
 
 namespace sfs::preset
 {
@@ -276,18 +278,22 @@ std::string seedToHex(std::uint64_t seed)
 
 std::uint64_t seedFromHex(const std::string& s)
 {
-    std::uint64_t v = 0;
-    auto trimmed = s;
-    if (trimmed.size() >= 2 && (trimmed[0] == '0') && (trimmed[1] == 'x' || trimmed[1] == 'X'))
+    // Tolerate the optional "0x" prefix; reject everything else as malformed.
+    // std::from_chars is portable + locale-free + MSVC-safe (sscanf trips
+    // C4996 deprecation under /WX on MSVC).
+    const char* first = s.data();
+    const char* last = first + s.size();
+    if (s.size() >= 2 && first[0] == '0' && (first[1] == 'x' || first[1] == 'X'))
     {
-        trimmed = trimmed.substr(2);
+        first += 2;
     }
-    if (trimmed.empty())
+    if (first == last)
     {
         return 0;
     }
-    auto from_chars_result = std::sscanf(trimmed.c_str(), "%llx", reinterpret_cast<unsigned long long*>(&v));
-    if (from_chars_result != 1)
+    std::uint64_t v = 0;
+    auto result = std::from_chars(first, last, v, 16);
+    if (result.ec != std::errc{} || result.ptr != last)
     {
         throw PresetParseError("preset: malformed seed hex string: " + s);
     }
