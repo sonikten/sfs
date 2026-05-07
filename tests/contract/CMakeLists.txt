@@ -18,7 +18,7 @@ function (sfs_add_contract_target name source)
     )
     add_test (NAME ${name}
               COMMAND ${name} --reporter compact
-              WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+              WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endfunction()
 
 sfs_add_contract_target (sfs_contract_drone      drone_test.cpp)
@@ -27,6 +27,25 @@ sfs_add_contract_target (sfs_contract_organic    organic_test.cpp)
 sfs_add_contract_target (sfs_contract_glitch     glitch_test.cpp)
 sfs_add_contract_target (sfs_contract_param_fuzz param_fuzz_test.cpp)
 sfs_add_contract_target (sfs_contract_vm_fuzz    voice_manager_fuzz_test.cpp)
+
+# Phase 4 §A4: preset-driven contract test rig. Loads .sfs files from
+# presets/contract/ and dispatches by `tags` to the corner's threshold.
+add_executable (sfs_contract_presets preset_contract_test.cpp)
+target_link_libraries (sfs_contract_presets
+    PRIVATE
+        SFS::Engine
+        SFS::Preset
+        SFS::PresetEngine
+        SFS::DeterminismFlags
+        SFS::StrictWarnings
+        Catch2::Catch2WithMain
+)
+set_target_properties (sfs_contract_presets PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+add_test (NAME sfs_contract_presets
+          COMMAND sfs_contract_presets --reporter compact
+          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 # Phase 2 plan §3 contract gate matrix:
 #   drone      ENABLED (Phase 2 form, 5s window, cv < 0.05)
