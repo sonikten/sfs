@@ -56,6 +56,13 @@ public:
     void setUniformShape(sfs::engine::agents::AgentShape s) noexcept { uniformShape_ = s; }
     [[nodiscard]] sfs::engine::agents::AgentShape uniformShape() const noexcept { return uniformShape_; }
 
+    // Phase 3 topology selector. Fans out to every voice; if a voice is
+    // currently rendering the prior topology it'll switch on the next
+    // block (with a brief substrate-reset transient — same trade as
+    // voice stealing). Plug-in shell writes from a host parameter.
+    void setTopology(Topology t) noexcept;
+    [[nodiscard]] Topology topology() const noexcept { return topology_; }
+
     // Phase 2 mod-matrix block-rate inputs. The plug-in shell writes
     // these from incoming MIDI; each voice picks them up via its mod
     // matrix evaluation each block.
@@ -102,6 +109,7 @@ private:
     sfs::engine::macros::MacroValues macroTargets_{};
     sfs::engine::macros::MacroValues smoothedMacros_{};
     sfs::engine::agents::AgentShape uniformShape_ = sfs::engine::agents::AgentShape::Sine;
+    Topology topology_ = Topology::Ring1D;
     float midiCc1_ = 0.0f;
     float sampleRate_ = 48000.0f;
     std::uint64_t nextAge_ = 1; // monotonically increasing

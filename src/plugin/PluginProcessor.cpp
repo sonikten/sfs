@@ -101,6 +101,15 @@ SfsAudioProcessor::SfsAudioProcessor()
                                                  0); // default Sine
     addParameter(shapeParam_);
 
+    // Phase 3 substrate topology selector. Default Ring 1D = Phase 2
+    // bit-exact behaviour. Torus 2D switches every voice to the 2D
+    // substrate (32×32 cells, von Neumann Laplacian).
+    topologyParam_ = new juce::AudioParameterChoice(juce::ParameterID("topology", 1),
+                                                    "TOPOLOGY",
+                                                    juce::StringArray{"Ring 1D", "Torus 2D"},
+                                                    0);
+    addParameter(topologyParam_);
+
     // Amp ADSR (Phase 2 §9 step 9). Times are millis on a skewed range so
     // the typical musical sweet spot (1-500 ms) gets dial resolution; range
     // tops at 5/10 s for pad-style ramps. Defaults match Voice constructor.
@@ -215,6 +224,7 @@ void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
 
     // Read the SHAPE selector and push to all voices.
     voiceManager_->setUniformShape(static_cast<sfs::engine::agents::AgentShape>(shapeParam_->getIndex()));
+    voiceManager_->setTopology(static_cast<sfs::engine::Topology>(topologyParam_->getIndex()));
 
     // ADSR + LFO + mod-matrix slot depths fan out to every voice. The
     // calls are O(voiceCount) and well under budget.

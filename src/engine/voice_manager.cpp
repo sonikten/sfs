@@ -125,6 +125,19 @@ void VoiceManager::setAdsr(float attackMs, float decayMs, float sustainLevel, fl
     }
 }
 
+void VoiceManager::setTopology(Topology t) noexcept
+{
+    if (topology_ == t)
+    {
+        return;
+    }
+    topology_ = t;
+    for (auto& s : slots_)
+    {
+        s.voice.setTopology(t);
+    }
+}
+
 void VoiceManager::setLfoConfig(int lfoIndex, float rateHz, sfs::engine::lfo::LfoShape shape) noexcept
 {
     if (lfoIndex < 0 || lfoIndex >= Voice::kLfoCount)

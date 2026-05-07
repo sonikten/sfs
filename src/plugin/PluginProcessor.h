@@ -84,7 +84,8 @@ private:
     juce::AudioParameterFloat* migrationParam_ = nullptr;
     juce::AudioParameterFloat* coherenceParam_ = nullptr;
     juce::AudioParameterFloat* excitationParam_ = nullptr;
-    juce::AudioParameterChoice* shapeParam_ = nullptr; // Phase 2 uniform agent shape
+    juce::AudioParameterChoice* shapeParam_ = nullptr;    // Phase 2 uniform agent shape
+    juce::AudioParameterChoice* topologyParam_ = nullptr; // Phase 3 substrate topology
 
     // Amp ADSR.
     juce::AudioParameterFloat* attackMsParam_ = nullptr;
