@@ -198,6 +198,10 @@ bool SfsAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
     {
         return true;
     }
+    if (out == juce::AudioChannelSet::create5point1())
+    {
+        return true;
+    }
     return false;
 }
 
@@ -320,7 +324,18 @@ void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     //   2 ch        — stereo (Phase 2 default)
     //   4 ch        — first-order ambisonic / quadraphonic (W, X, Y, Z)
     //                 ACN/SN3D order; sfs-spec/04 §3.6
-    if (numChannels == 4)
+    if (numChannels == 6)
+    {
+        // 5.1 — JUCE channel order: L, R, C, LFE, Ls, Rs.
+        auto* const outL = buffer.getWritePointer(0);
+        auto* const outR = buffer.getWritePointer(1);
+        auto* const outC = buffer.getWritePointer(2);
+        auto* const outLfe = buffer.getWritePointer(3);
+        auto* const outLs = buffer.getWritePointer(4);
+        auto* const outRs = buffer.getWritePointer(5);
+        voiceManager_->renderBlockSurround51(outL, outR, outC, outLfe, outLs, outRs, numSamples);
+    }
+    else if (numChannels == 4)
     {
         auto* const outW = buffer.getWritePointer(0);
         auto* const outX = buffer.getWritePointer(1);

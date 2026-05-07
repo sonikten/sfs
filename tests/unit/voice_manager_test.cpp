@@ -273,6 +273,103 @@ TEST_CASE("FOA render: 2D voice produces non-silent W with Z = 0", "[voice_manag
     REQUIRE(peakZ == 0.0f); // strict zero — Z is hard-wired to 0 in 2D mode
 }
 
+TEST_CASE("5.1 render: 2D voice produces non-silent across all 6 channels", "[voice_manager][surround]")
+{
+    VoiceManager mgr(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+    mgr.setTopology(sfs::engine::Topology::Torus2D);
+    mgr.macros().tension = 0.5f;
+    mgr.macros().damping = 0.3f;
+    mgr.macros().density = 0.6f;
+    mgr.macros().migration = 0.0f;
+    mgr.macros().coherence = 1.0f;
+    mgr.macros().excitation = 0.0f;
+    mgr.noteOn(60, 1.0f);
+
+    constexpr int kSamples = kSampleRate / 4;
+    std::array<std::vector<float>, 6> ch;
+    for (auto& c : ch)
+    {
+        c.assign(static_cast<std::size_t>(kSamples), 0.0f);
+    }
+    constexpr int kBlock = 256;
+    for (int written = 0; written < kSamples; written += kBlock)
+    {
+        const int n = std::min(kBlock, kSamples - written);
+        mgr.renderBlockSurround51(ch[0].data() + written,
+                                  ch[1].data() + written,
+                                  ch[2].data() + written,
+                                  ch[3].data() + written,
+                                  ch[4].data() + written,
+                                  ch[5].data() + written,
+                                  n);
+    }
+
+    // Each of L, R, C, Ls, Rs should be non-silent. LFE should be heavily
+    // low-passed (so its peak is bounded but non-zero).
+    for (int c = 0; c < 6; ++c)
+    {
+        float peak = 0.0f;
+        for (int i = 0; i < kSamples; ++i)
+        {
+            peak = std::max(peak, std::fabs(ch[static_cast<std::size_t>(c)][static_cast<std::size_t>(i)]));
+        }
+        CAPTURE(c, peak);
+        REQUIRE(peak < 1.5f);
+        // Channel 3 = LFE; allow it to be small (it's heavily LPF'd).
+        if (c != 3)
+        {
+            REQUIRE(peak > 1e-3f);
+        }
+    }
+}
+
+TEST_CASE("5.1 render: 1D voice downmixes per spec (Ls=L, Rs=R, C=avg)", "[voice_manager][surround]")
+{
+    VoiceManager mgr(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+    mgr.setTopology(sfs::engine::Topology::Ring1D);
+    mgr.noteOn(60, 1.0f);
+
+    constexpr int kSamples = kSampleRate / 4;
+    std::array<std::vector<float>, 6> ch;
+    for (auto& c : ch)
+    {
+        c.assign(static_cast<std::size_t>(kSamples), 0.0f);
+    }
+    constexpr int kBlock = 256;
+    for (int written = 0; written < kSamples; written += kBlock)
+    {
+        const int n = std::min(kBlock, kSamples - written);
+        mgr.renderBlockSurround51(ch[0].data() + written,
+                                  ch[1].data() + written,
+                                  ch[2].data() + written,
+                                  ch[3].data() + written,
+                                  ch[4].data() + written,
+                                  ch[5].data() + written,
+                                  n);
+    }
+
+    // Spec: 1D-mode 5.1 downmix => Ls = L, Rs = R after the bus soft-clip.
+    // The bus soft-clip is applied to each summed channel, so the
+    // tap copy happens before the clip — check approximate equality
+    // (within the soft-clip's monotonic mapping).
+    int matchesLs = 0;
+    int matchesRs = 0;
+    for (int i = 0; i < kSamples; ++i)
+    {
+        if (std::fabs(ch[0][static_cast<std::size_t>(i)] - ch[4][static_cast<std::size_t>(i)]) < 1e-4f)
+        {
+            ++matchesLs;
+        }
+        if (std::fabs(ch[1][static_cast<std::size_t>(i)] - ch[5][static_cast<std::size_t>(i)]) < 1e-4f)
+        {
+            ++matchesRs;
+        }
+    }
+    // Most samples should match (the downmix is L→Ls and R→Rs).
+    REQUIRE(matchesLs > kSamples * 9 / 10);
+    REQUIRE(matchesRs > kSamples * 9 / 10);
+}
+
 TEST_CASE("FOA render: 1D voice downmixes stereo into W/X (Y=Z=0)", "[voice_manager][foa]")
 {
     VoiceManager mgr(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);

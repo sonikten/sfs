@@ -63,6 +63,23 @@ public:
     // are unchanged, only the harvester read + DC + soft-clip happen twice.
     void renderBlockStereo(float* outL, float* outR, int numSamples) noexcept;
 
+    // Render `numSamples` of 5.1 surround (sfs-spec/04 §3.4). Six
+    // channels: L, R, C, LFE, Ls, Rs. 2D topology only — in 1D mode the
+    // five full-bandwidth channels downmix to stereo (L/R) and Ls/Rs
+    // copy from L/R, C is a sum, LFE is the LPF'd sum (spec downmix).
+    //
+    // Harvester placement (2D, ITU-R BS.775 angles around a circle of
+    // radius 0.4·min(Nx,Ny) centred at (0.5·Nx, 0.5·Ny)):
+    //   L  = -30°  R  = +30°  C  =  0°
+    //   Ls = -110° Rs = +110°
+    //
+    // LFE: 120 Hz first-order low-pass of the 5-channel sum (sfs-spec
+    // §3.4 specifies 2nd-order Linkwitz–Riley; Phase 3 ships 1st-order
+    // for simplicity and tightens to LR-2 in Phase 4 alongside the
+    // master output stage).
+    void renderBlockSurround51(
+        float* outL, float* outR, float* outC, float* outLfe, float* outLs, float* outRs, int numSamples) noexcept;
+
     // Render `numSamples` of first-order horizontal-plane ambisonic
     // (sfs-spec/04 §3.6). 4 channels: W (omni), X (front-back), Y
     // (left-right), Z (up-down, always 0 — substrate is at most 2D).
@@ -213,6 +230,15 @@ private:
     // for symmetry but Z is always 0, so its state stays at 0 too.
     std::array<float, 4> dcBlockerLastInputFoa_{};
     std::array<float, 4> dcBlockerLastOutputFoa_{};
+
+    // 5.1 per-channel DC-blocker state (L, R, C, LFE, Ls, Rs).
+    std::array<float, 6> dcBlockerLastInput51_{};
+    std::array<float, 6> dcBlockerLastOutput51_{};
+
+    // LFE 120 Hz one-pole LPF state. y[n] = y[n-1] + α·(x[n] - y[n-1]).
+    // α set at construction from sample rate.
+    float lfeLpfState_ = 0.0f;
+    float lfeLpfAlpha_ = 0.0157f; // ≈ 2π·120/48000
 
     // Stereo harvester positions. Mono renderBlock uses harvesterPosition_
     // (set to substrate midpoint by default, kept for test compatibility).

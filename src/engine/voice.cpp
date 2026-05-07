@@ -207,6 +207,13 @@ Voice::Voice(int substrateCells, int agentCount, float sampleRate)
     // decorrelation.
     harvesterPositionStereoL_ = 0.0f;
     harvesterPositionStereoR_ = static_cast<float>(substrateCells) * 0.5f;
+
+    // LFE 120 Hz first-order LPF: α = 1 - exp(-2π·fc/fs). Padé approximation
+    // (std::exp forbidden in src/engine).
+    constexpr float kLfeCutoffHz = 120.0f;
+    constexpr float kTwoPi = 6.2831853f;
+    const float x = kTwoPi * kLfeCutoffHz / sampleRate;
+    lfeLpfAlpha_ = (2.0f * x) / (2.0f + x);
 }
 
 void Voice::noteOn(int midiNote, float velocity)
@@ -444,6 +451,131 @@ void Voice::renderBlockStereo(float* outL, float* outR, int numSamples) noexcept
     dcBlockerLastOutputL_ = prevOutL;
     dcBlockerLastInputR_ = prevInR;
     dcBlockerLastOutputR_ = prevOutR;
+}
+
+void Voice::renderBlockSurround51(
+    float* outL, float* outR, float* outC, float* outLfe, float* outLs, float* outRs, int numSamples) noexcept
+{
+    if (outL == nullptr || outR == nullptr || outC == nullptr || outLfe == nullptr || outLs == nullptr ||
+        outRs == nullptr || numSamples <= 0)
+    {
+        return;
+    }
+
+    // 1D fallback: spec sfs-spec/04 §3.4 — "5.1 layouts downmix to
+    // stereo at the output stage" when topology is 1D. Render the
+    // existing stereo path into L/R, copy L/R into Ls/Rs (a flat
+    // backwards image since 1D has no spatial back), C = (L+R)/2,
+    // LFE = LPF(L+R).
+    if (topology_ != Topology::Torus2D)
+    {
+        renderBlockStereo(outL, outR, numSamples);
+        for (int i = 0; i < numSamples; ++i)
+        {
+            outC[i] = 0.5f * (outL[i] + outR[i]);
+            outLs[i] = outL[i];
+            outRs[i] = outR[i];
+            const float sum = outL[i] + outR[i];
+            lfeLpfState_ += lfeLpfAlpha_ * (sum - lfeLpfState_);
+            outLfe[i] = lfeLpfState_;
+        }
+        return;
+    }
+
+    const sfs::dsp::ScopedFlushToZero scopedFtz;
+
+    macros_.clampInPlace();
+    const sfs::engine::macros::MacroValues modulated = applyModMatrix(macros_);
+    const sfs::engine::macros::InternalFields fields = sfs::engine::macros::fanOut(modulated);
+    applyMacroFanOut(fields);
+
+    // Five harvester positions at ITU-R BS.775 angles around a circle of
+    // radius 0.4·min(Nx, Ny) centred at (0.5·Nx, 0.5·Ny). Angles use
+    // standard counterclockwise from front (positive X = front, positive
+    // Y = left, in audio convention).
+    const float nx = static_cast<float>(substrate2D_.cellsX());
+    const float ny = static_cast<float>(substrate2D_.cellsY());
+    const float cx = 0.5f * nx;
+    const float cy = 0.5f * ny;
+    const float r = 0.4f * std::min(nx, ny);
+
+    // 5 angles in degrees: L=-30, R=+30, C=0, Ls=-110, Rs=+110.
+    // Pre-computed unit-circle (cos, sin) values to avoid runtime
+    // transcendentals (the spec's std::cos/sin are forbidden in src/engine).
+    constexpr float kCosNeg30 = 0.8660254f;
+    constexpr float kSinNeg30 = -0.5f;
+    constexpr float kCosPos30 = 0.8660254f;
+    constexpr float kSinPos30 = 0.5f;
+    constexpr float kCosZero = 1.0f;
+    constexpr float kSinZero = 0.0f;
+    constexpr float kCosNeg110 = -0.34202014f;
+    constexpr float kSinNeg110 = -0.93969262f;
+    constexpr float kCosPos110 = -0.34202014f;
+    constexpr float kSinPos110 = 0.93969262f;
+
+    // Positions per channel (substrate-cell coordinates, Y-axis flipped
+    // because grid coordinates increase downward).
+    const float posLx = cx + r * kCosNeg30;
+    const float posLy = cy - r * kSinNeg30;
+    const float posRx = cx + r * kCosPos30;
+    const float posRy = cy - r * kSinPos30;
+    const float posCx = cx + r * kCosZero;
+    const float posCy = cy - r * kSinZero;
+    const float posLsx = cx + r * kCosNeg110;
+    const float posLsy = cy - r * kSinNeg110;
+    const float posRsx = cx + r * kCosPos110;
+    const float posRsy = cy - r * kSinPos110;
+
+    const float a = dcBlockerAlpha_;
+    auto prevIn = dcBlockerLastInput51_;
+    auto prevOut = dcBlockerLastOutput51_;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        for (int li = 0; li < kLfoCount; ++li)
+        {
+            lfoValues_[static_cast<std::size_t>(li)] = lfos_[static_cast<std::size_t>(li)].tick();
+        }
+        agents_.setVoiceGain(ampEnv_.tick());
+
+        agents_.processOneSample(substrate2D_, sampleRate_);
+        substrate2D_.step();
+
+        const float rL = substrate2D_.read(posLx, posLy);
+        const float rR = substrate2D_.read(posRx, posRy);
+        const float rC = substrate2D_.read(posCx, posCy);
+        const float rLs = substrate2D_.read(posLsx, posLsy);
+        const float rRs = substrate2D_.read(posRsx, posRsy);
+        const float lfeRaw = rL + rR + rC + rLs + rRs;
+        lfeLpfState_ += lfeLpfAlpha_ * (lfeRaw - lfeLpfState_);
+        const float rLfe = lfeLpfState_;
+
+        // Per-channel DC block + soft clip + steal ramp.
+        const std::array<float, 6> raw = {rL, rR, rC, rLfe, rLs, rRs};
+        std::array<float, 6> out{};
+        for (int c = 0; c < 6; ++c)
+        {
+            const float blocked = raw[static_cast<std::size_t>(c)] - prevIn[static_cast<std::size_t>(c)] +
+                                  a * prevOut[static_cast<std::size_t>(c)];
+            prevIn[static_cast<std::size_t>(c)] = raw[static_cast<std::size_t>(c)];
+            prevOut[static_cast<std::size_t>(c)] = blocked;
+            out[static_cast<std::size_t>(c)] = softClip(kOutputPreGain * blocked) * stealRampGain_;
+        }
+        outL[i] = out[0];
+        outR[i] = out[1];
+        outC[i] = out[2];
+        outLfe[i] = out[3];
+        outLs[i] = out[4];
+        outRs[i] = out[5];
+
+        if (stealRampGain_ < 1.0f)
+        {
+            stealRampGain_ = std::min(1.0f, stealRampGain_ + stealRampInc_);
+        }
+    }
+
+    dcBlockerLastInput51_ = prevIn;
+    dcBlockerLastOutput51_ = prevOut;
 }
 
 void Voice::renderBlockFoa(float* outW, float* outX, float* outY, float* outZ, int numSamples) noexcept

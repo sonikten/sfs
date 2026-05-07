@@ -59,6 +59,11 @@ public:
     // the substrate is at most 2D.
     void renderBlockFoa(float* outW, float* outX, float* outY, float* outZ, int numSamples) noexcept;
 
+    // Per-block 5.1 surround render (sfs-spec/04 §3.4). Six channels
+    // L / R / C / LFE / Ls / Rs, ITU-R BS.775 layout.
+    void renderBlockSurround51(
+        float* outL, float* outR, float* outC, float* outLfe, float* outLs, float* outRs, int numSamples) noexcept;
+
     // Mutable macros that ALL voices share. The plug-in shell writes once
     // before renderBlockStereo; each voice copies the snapshot at its own
     // block boundary.
@@ -153,6 +158,7 @@ private:
     std::vector<float> scratchFoaX_;
     std::vector<float> scratchFoaY_;
     std::vector<float> scratchFoaZ_;
+    std::array<std::vector<float>, 6> scratch51_; // L, R, C, LFE, Ls, Rs
 };
 
 } // namespace sfs::engine
