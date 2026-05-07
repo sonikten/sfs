@@ -1,0 +1,119 @@
+{
+  "_magic": "SFS-1.00",
+  "format_version": "1.0",
+  "engine_version": "1.0.0",
+  "metadata": {
+    "name": "Lighthouse",
+    "author": "SFS Factory",
+    "category": "Drone",
+    "tags": [
+      "drone",
+      "single-cohort",
+      "ring",
+      "contract:drone"
+    ],
+    "created": "2026-05-07T20:00:00Z",
+    "modified": "2026-05-07T20:00:00Z",
+    "description": "Single dominant cohort drone (Doc 09 §4 #5). Slow rotating harvester is reserved for Phase 4+ orbit support; for now the rotation is encoded as orbit_depth = 0 with the design intent preserved in the persisted field."
+  },
+  "seed": "0x5F5F5F5F5F5F5F5F",
+  "macros": {
+    "tension": 0.5,
+    "damping": 0.25,
+    "density": 0.4,
+    "migration": 0.0,
+    "coherence": 1.0,
+    "excitation": 0.0
+  },
+  "structural": {
+    "topology": "ring",
+    "aspect": 1.0,
+    "substrate_size": 1024,
+    "deposit_kernel": "linear",
+    "read_kernel": "linear"
+  },
+  "agents": {
+    "max_active": 8,
+    "harmonic_set": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "shape_distribution": {
+      "sine": 1.0,
+      "saw": 0.0,
+      "square": 0.0,
+      "fmpair": 0.0,
+      "noise": 0.0
+    },
+    "shape_param_default": {
+      "fm_ratio_index": 0.5,
+      "fm_index_index": 0.3
+    },
+    "detune_scale": 0.0
+  },
+  "envelopes": {
+    "env1": {
+      "attack": 0.3,
+      "decay": 0.5,
+      "sustain": 0.85,
+      "release": 3.0
+    },
+    "env2": {
+      "attack": 0.05,
+      "decay": 0.3,
+      "sustain": 1.0,
+      "release": 0.5
+    }
+  },
+  "lfos": [
+    {
+      "rate_hz": 0.05,
+      "depth": 1.0,
+      "shape": "sine",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 2.0,
+      "depth": 1.0,
+      "shape": "triangle",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 5.0,
+      "depth": 1.0,
+      "shape": "sine",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 7.0,
+      "depth": 1.0,
+      "shape": "sample_hold",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    }
+  ],
+  "modulation_matrix": {
+    "slots": []
+  },
+  "harvesters": {
+    "spacing": 0.5,
+    "orbit_depth": 0.0,
+    "orbit_speed_hz": 0.05,
+    "orbit_shape": "circle"
+  },
+  "output": {
+    "master_gain_db": 0.0,
+    "pan": 0.0,
+    "limiter_active": false
+  },
+  "_audio_hash": "sha256:eea6a12ce593d30f3448e18fd7c1debeed6cae440115d4bf8c64698f68d42750"
+}

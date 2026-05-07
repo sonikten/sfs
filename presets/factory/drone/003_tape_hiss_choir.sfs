@@ -1,0 +1,125 @@
+{
+  "_magic": "SFS-1.00",
+  "format_version": "1.0",
+  "engine_version": "1.0.0",
+  "metadata": {
+    "name": "Tape Hiss Choir",
+    "author": "SFS Factory",
+    "category": "Drone",
+    "tags": [
+      "drone",
+      "choral",
+      "noise",
+      "vintage",
+      "ring",
+      "contract:drone"
+    ],
+    "created": "2026-05-07T20:00:00Z",
+    "modified": "2026-05-07T20:00:00Z",
+    "description": "Choral drone with a small fraction of noise agents adding subtle tape-hiss texture (Doc 09 §4 #3). Sine cohort dominates; cv stays well under threshold."
+  },
+  "seed": "0x5F5F5F5F5F5F5F5F",
+  "macros": {
+    "tension": 0.5,
+    "damping": 0.3,
+    "density": 0.65,
+    "migration": 0.0,
+    "coherence": 1.0,
+    "excitation": 0.0
+  },
+  "structural": {
+    "topology": "ring",
+    "aspect": 1.0,
+    "substrate_size": 1024,
+    "deposit_kernel": "linear",
+    "read_kernel": "linear"
+  },
+  "agents": {
+    "max_active": 16,
+    "harmonic_set": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "shape_distribution": {
+      "sine": 0.98,
+      "saw": 0.0,
+      "square": 0.0,
+      "fmpair": 0.0,
+      "noise": 0.02
+    },
+    "shape_param_default": {
+      "fm_ratio_index": 0.5,
+      "fm_index_index": 0.3
+    },
+    "detune_scale": 0.0
+  },
+  "envelopes": {
+    "env1": {
+      "attack": 0.5,
+      "decay": 0.5,
+      "sustain": 0.85,
+      "release": 4.0
+    },
+    "env2": {
+      "attack": 0.05,
+      "decay": 0.3,
+      "sustain": 1.0,
+      "release": 0.5
+    }
+  },
+  "lfos": [
+    {
+      "rate_hz": 0.1,
+      "depth": 1.0,
+      "shape": "sine",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 2.0,
+      "depth": 1.0,
+      "shape": "triangle",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 5.0,
+      "depth": 1.0,
+      "shape": "sine",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    },
+    {
+      "rate_hz": 7.0,
+      "depth": 1.0,
+      "shape": "sample_hold",
+      "sync": "free",
+      "phase": 0.0,
+      "reset_on_note": false
+    }
+  ],
+  "modulation_matrix": {
+    "slots": []
+  },
+  "harvesters": {
+    "spacing": 0.5,
+    "orbit_depth": 0.0,
+    "orbit_speed_hz": 0.05,
+    "orbit_shape": "circle"
+  },
+  "output": {
+    "master_gain_db": 0.0,
+    "pan": 0.0,
+    "limiter_active": false
+  },
+  "_audio_hash": "sha256:65c16cceeebcea5a642a9f0568b8cb22e1779ab0d8cd4093b193a2e9a5c19139"
+}
