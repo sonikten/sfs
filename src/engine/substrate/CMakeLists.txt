@@ -6,6 +6,7 @@
 
 add_library (sfs_engine_substrate STATIC
     substrate_1d.cpp
+    substrate_2d.cpp
 )
 
 add_library (SFS::Engine::Substrate ALIAS sfs_engine_substrate)
