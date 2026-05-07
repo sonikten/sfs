@@ -370,6 +370,103 @@ TEST_CASE("5.1 render: 1D voice downmixes per spec (Ls=L, Rs=R, C=avg)", "[voice
     REQUIRE(matchesRs > kSamples * 9 / 10);
 }
 
+TEST_CASE("7.1.4 render: 2D voice produces non-silent across all 12 channels", "[voice_manager][surround]")
+{
+    VoiceManager mgr(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+    mgr.setTopology(sfs::engine::Topology::Torus2D);
+    mgr.macros().tension = 0.5f;
+    mgr.macros().damping = 0.3f;
+    mgr.macros().density = 0.6f;
+    mgr.macros().migration = 0.0f;
+    mgr.macros().coherence = 1.0f;
+    mgr.macros().excitation = 0.0f;
+    mgr.noteOn(60, 1.0f);
+
+    constexpr int kSamples = kSampleRate / 4;
+    std::array<std::vector<float>, 12> ch;
+    std::array<float*, 12> ptrs{};
+    for (std::size_t c = 0; c < 12; ++c)
+    {
+        ch[c].assign(static_cast<std::size_t>(kSamples), 0.0f);
+        ptrs[c] = ch[c].data();
+    }
+    constexpr int kBlock = 256;
+    for (int written = 0; written < kSamples; written += kBlock)
+    {
+        const int n = std::min(kBlock, kSamples - written);
+        std::array<float*, 12> offs{};
+        for (std::size_t c = 0; c < 12; ++c)
+        {
+            offs[c] = ptrs[c] + written;
+        }
+        mgr.renderBlockSurround714(offs.data(), n);
+    }
+
+    for (int c = 0; c < 12; ++c)
+    {
+        float peak = 0.0f;
+        for (int i = 0; i < kSamples; ++i)
+        {
+            peak = std::max(peak, std::fabs(ch[static_cast<std::size_t>(c)][static_cast<std::size_t>(i)]));
+        }
+        CAPTURE(c, peak);
+        REQUIRE(peak < 1.5f);
+        if (c != 3) // skip LFE (heavily LPF'd)
+        {
+            REQUIRE(peak > 1e-3f);
+        }
+    }
+}
+
+TEST_CASE("7.1.4 render: 1D voice downmix has silent height channels", "[voice_manager][surround]")
+{
+    VoiceManager mgr(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+    mgr.setTopology(sfs::engine::Topology::Ring1D);
+    mgr.noteOn(60, 1.0f);
+
+    constexpr int kSamples = kSampleRate / 4;
+    std::array<std::vector<float>, 12> ch;
+    std::array<float*, 12> ptrs{};
+    for (std::size_t c = 0; c < 12; ++c)
+    {
+        ch[c].assign(static_cast<std::size_t>(kSamples), 0.0f);
+        ptrs[c] = ch[c].data();
+    }
+    constexpr int kBlock = 256;
+    for (int written = 0; written < kSamples; written += kBlock)
+    {
+        const int n = std::min(kBlock, kSamples - written);
+        std::array<float*, 12> offs{};
+        for (std::size_t c = 0; c < 12; ++c)
+        {
+            offs[c] = ptrs[c] + written;
+        }
+        mgr.renderBlockSurround714(offs.data(), n);
+    }
+
+    // Height channels (8..11) must be exactly silent in 1D mode (spec
+    // §3.5: "1D mode does not pretend to deliver true 7.1.4").
+    for (int c = 8; c < 12; ++c)
+    {
+        float peak = 0.0f;
+        for (int i = 0; i < kSamples; ++i)
+        {
+            peak = std::max(peak, std::fabs(ch[static_cast<std::size_t>(c)][static_cast<std::size_t>(i)]));
+        }
+        CAPTURE(c, peak);
+        REQUIRE(peak == 0.0f);
+    }
+    // L (0) and R (1) carry the stereo downmix.
+    float peakL = 0.0f, peakR = 0.0f;
+    for (int i = 0; i < kSamples; ++i)
+    {
+        peakL = std::max(peakL, std::fabs(ch[0][static_cast<std::size_t>(i)]));
+        peakR = std::max(peakR, std::fabs(ch[1][static_cast<std::size_t>(i)]));
+    }
+    REQUIRE(peakL > 1e-3f);
+    REQUIRE(peakR > 1e-3f);
+}
+
 TEST_CASE("FOA render: 1D voice downmixes stereo into W/X (Y=Z=0)", "[voice_manager][foa]")
 {
     VoiceManager mgr(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);

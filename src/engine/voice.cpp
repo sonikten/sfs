@@ -578,6 +578,155 @@ void Voice::renderBlockSurround51(
     dcBlockerLastOutput51_ = prevOut;
 }
 
+void Voice::renderBlockSurround714(float* const* outs, int numSamples) noexcept
+{
+    if (outs == nullptr || numSamples <= 0)
+    {
+        return;
+    }
+    for (int c = 0; c < 12; ++c)
+    {
+        if (outs[c] == nullptr)
+        {
+            return;
+        }
+    }
+
+    // 1D fallback: spec downmix-to-stereo. Floor channels mirror the 5.1
+    // shape; height channels are silent (1D has no height information).
+    if (topology_ != Topology::Torus2D)
+    {
+        renderBlockStereo(outs[0], outs[1], numSamples);
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float l = outs[0][i];
+            const float r = outs[1][i];
+            outs[2][i] = 0.5f * (l + r); // C
+            const float sum = l + r;
+            lfeLpfState_ += lfeLpfAlpha_ * (sum - lfeLpfState_);
+            outs[3][i] = lfeLpfState_; // LFE
+            outs[4][i] = l;            // Ls
+            outs[5][i] = r;            // Rs
+            outs[6][i] = l;            // Lr
+            outs[7][i] = r;            // Rr
+            outs[8][i] = 0.0f;         // Tfl
+            outs[9][i] = 0.0f;         // Tfr
+            outs[10][i] = 0.0f;        // Trl
+            outs[11][i] = 0.0f;        // Trr
+        }
+        return;
+    }
+
+    const sfs::dsp::ScopedFlushToZero scopedFtz;
+
+    macros_.clampInPlace();
+    const sfs::engine::macros::MacroValues modulated = applyModMatrix(macros_);
+    const sfs::engine::macros::InternalFields fields = sfs::engine::macros::fanOut(modulated);
+    applyMacroFanOut(fields);
+
+    const float nx = static_cast<float>(substrate2D_.cellsX());
+    const float ny = static_cast<float>(substrate2D_.cellsY());
+    const float minDim = std::min(nx, ny);
+
+    // Floor (7 ch): centre (0.5·Nx, 0.2·Ny), radius 0.15·minDim — keeps
+    // y in [0.05·Ny, 0.35·Ny] which respects the spec's "y < 0.3·Ny"
+    // floor band with a small margin.
+    const float floorCx = 0.5f * nx;
+    const float floorCy = 0.2f * ny;
+    const float floorR = 0.15f * minDim;
+
+    // Height (4 ch): centre (0.5·Nx, 0.8·Ny), same radius.
+    const float topCx = 0.5f * nx;
+    const float topCy = 0.8f * ny;
+    const float topR = 0.15f * minDim;
+
+    // Pre-computed unit-circle (cos, sin) for every angle used:
+    //   floor: 0, ±30, ±90, ±150
+    //   height: ±45, ±135
+    constexpr float kCos0 = 1.0f, kSin0 = 0.0f;
+    constexpr float kCosP30 = 0.8660254f, kSinP30 = 0.5f;
+    constexpr float kCosN30 = 0.8660254f, kSinN30 = -0.5f;
+    constexpr float kCosP90 = 0.0f, kSinP90 = 1.0f;
+    constexpr float kCosN90 = 0.0f, kSinN90 = -1.0f;
+    constexpr float kCosP150 = -0.8660254f, kSinP150 = 0.5f;
+    constexpr float kCosN150 = -0.8660254f, kSinN150 = -0.5f;
+    constexpr float kCosP45 = 0.7071068f, kSinP45 = 0.7071068f;
+    constexpr float kCosN45 = 0.7071068f, kSinN45 = -0.7071068f;
+    constexpr float kCosP135 = -0.7071068f, kSinP135 = 0.7071068f;
+    constexpr float kCosN135 = -0.7071068f, kSinN135 = -0.7071068f;
+
+    // Y axis points down in grid coords; angle convention is CCW from
+    // front (audio convention positive = left ear). Position formula:
+    //   x = cx + r·cos(angle), y = cy - r·sin(angle).
+    // Floor positions (channels 0..7 except LFE at 3):
+    const float pL[2] = {floorCx + floorR * kCosN30, floorCy - floorR * kSinN30};
+    const float pR[2] = {floorCx + floorR * kCosP30, floorCy - floorR * kSinP30};
+    const float pC[2] = {floorCx + floorR * kCos0, floorCy - floorR * kSin0};
+    const float pLs[2] = {floorCx + floorR * kCosN90, floorCy - floorR * kSinN90};
+    const float pRs[2] = {floorCx + floorR * kCosP90, floorCy - floorR * kSinP90};
+    const float pLr[2] = {floorCx + floorR * kCosN150, floorCy - floorR * kSinN150};
+    const float pRr[2] = {floorCx + floorR * kCosP150, floorCy - floorR * kSinP150};
+    // Height positions (channels 8..11):
+    const float pTfl[2] = {topCx + topR * kCosN45, topCy - topR * kSinN45};
+    const float pTfr[2] = {topCx + topR * kCosP45, topCy - topR * kSinP45};
+    const float pTrl[2] = {topCx + topR * kCosN135, topCy - topR * kSinN135};
+    const float pTrr[2] = {topCx + topR * kCosP135, topCy - topR * kSinP135};
+
+    const float a = dcBlockerAlpha_;
+    auto prevIn = dcBlockerLastInput714_;
+    auto prevOut = dcBlockerLastOutput714_;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        for (int li = 0; li < kLfoCount; ++li)
+        {
+            lfoValues_[static_cast<std::size_t>(li)] = lfos_[static_cast<std::size_t>(li)].tick();
+        }
+        agents_.setVoiceGain(ampEnv_.tick());
+
+        agents_.processOneSample(substrate2D_, sampleRate_);
+        substrate2D_.step();
+
+        const float rL = substrate2D_.read(pL[0], pL[1]);
+        const float rR = substrate2D_.read(pR[0], pR[1]);
+        const float rC = substrate2D_.read(pC[0], pC[1]);
+        const float rLs = substrate2D_.read(pLs[0], pLs[1]);
+        const float rRs = substrate2D_.read(pRs[0], pRs[1]);
+        const float rLr = substrate2D_.read(pLr[0], pLr[1]);
+        const float rRr = substrate2D_.read(pRr[0], pRr[1]);
+        const float rTfl = substrate2D_.read(pTfl[0], pTfl[1]);
+        const float rTfr = substrate2D_.read(pTfr[0], pTfr[1]);
+        const float rTrl = substrate2D_.read(pTrl[0], pTrl[1]);
+        const float rTrr = substrate2D_.read(pTrr[0], pTrr[1]);
+
+        // LFE: 1st-order LPF of the 11-channel sum (Phase 3 stub; LR-2 in
+        // Phase 4 — same caveat as the 5.1 path).
+        const float lfeRaw = rL + rR + rC + rLs + rRs + rLr + rRr + rTfl + rTfr + rTrl + rTrr;
+        lfeLpfState_ += lfeLpfAlpha_ * (lfeRaw - lfeLpfState_);
+        const float rLfe = lfeLpfState_;
+
+        // Per-channel DC block + soft clip + steal ramp. JUCE channel
+        // order: L, R, C, LFE, Ls, Rs, Lr, Rr, Tfl, Tfr, Trl, Trr.
+        const std::array<float, 12> raw = {rL, rR, rC, rLfe, rLs, rRs, rLr, rRr, rTfl, rTfr, rTrl, rTrr};
+        for (int c = 0; c < 12; ++c)
+        {
+            const float blocked = raw[static_cast<std::size_t>(c)] - prevIn[static_cast<std::size_t>(c)] +
+                                  a * prevOut[static_cast<std::size_t>(c)];
+            prevIn[static_cast<std::size_t>(c)] = raw[static_cast<std::size_t>(c)];
+            prevOut[static_cast<std::size_t>(c)] = blocked;
+            outs[c][i] = softClip(kOutputPreGain * blocked) * stealRampGain_;
+        }
+
+        if (stealRampGain_ < 1.0f)
+        {
+            stealRampGain_ = std::min(1.0f, stealRampGain_ + stealRampInc_);
+        }
+    }
+
+    dcBlockerLastInput714_ = prevIn;
+    dcBlockerLastOutput714_ = prevOut;
+}
+
 void Voice::renderBlockFoa(float* outW, float* outX, float* outY, float* outZ, int numSamples) noexcept
 {
     if (outW == nullptr || outX == nullptr || outY == nullptr || outZ == nullptr || numSamples <= 0)

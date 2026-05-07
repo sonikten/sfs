@@ -36,6 +36,20 @@ VoiceManager::VoiceManager(int substrateCells, int agentCount, float sampleRate)
           std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
           std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
           std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+      },
+      scratch714_{
+          std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+          std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+          std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+          std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+          std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+          std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+          std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+          std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+          std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+          std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+          std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+          std::vector<float>(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
       }
 {
     // MPE timbre default is centred — MPE 1.0 §6.4 reset value.
@@ -595,6 +609,98 @@ void VoiceManager::renderBlockSurround51(
         for (int i = 0; i < numSamples; ++i)
         {
             channelOut[c][i] = busSoftClip(channelOut[c][i]);
+        }
+    }
+}
+
+void VoiceManager::renderBlockSurround714(float* const* outs, int numSamples) noexcept
+{
+    if (outs == nullptr || numSamples <= 0)
+    {
+        return;
+    }
+    for (int c = 0; c < 12; ++c)
+    {
+        if (outs[c] == nullptr)
+        {
+            return;
+        }
+    }
+
+    for (int c = 0; c < 12; ++c)
+    {
+        for (int i = 0; i < numSamples; ++i)
+        {
+            outs[c][i] = 0.0f;
+        }
+    }
+
+    if (numSamples > kMaxBlockSize)
+    {
+        for (int written = 0; written < numSamples;)
+        {
+            const int chunk = std::min(kMaxBlockSize, numSamples - written);
+            float* offset[12];
+            for (int c = 0; c < 12; ++c)
+            {
+                offset[c] = outs[c] + written;
+            }
+            renderBlockSurround714(offset, chunk);
+            written += chunk;
+        }
+        return;
+    }
+
+    constexpr float kTauSec = 0.030f;
+    const float denom = std::max(0.001f, kTauSec * sampleRate_);
+    const float xS = static_cast<float>(numSamples) / denom;
+    const float alpha = (2.0f * xS) / (2.0f + xS);
+    smoothedMacros_.tension += (macroTargets_.tension - smoothedMacros_.tension) * alpha;
+    smoothedMacros_.damping += (macroTargets_.damping - smoothedMacros_.damping) * alpha;
+    smoothedMacros_.density += (macroTargets_.density - smoothedMacros_.density) * alpha;
+    smoothedMacros_.migration += (macroTargets_.migration - smoothedMacros_.migration) * alpha;
+    smoothedMacros_.coherence += (macroTargets_.coherence - smoothedMacros_.coherence) * alpha;
+    smoothedMacros_.excitation += (macroTargets_.excitation - smoothedMacros_.excitation) * alpha;
+    smoothedMacros_.clampInPlace();
+
+    float* buf[12];
+    for (int c = 0; c < 12; ++c)
+    {
+        buf[c] = scratch714_[static_cast<std::size_t>(c)].data();
+    }
+
+    for (auto& s : slots_)
+    {
+        const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
+        if (!shouldRender)
+        {
+            continue;
+        }
+        s.voice.macros() = smoothedMacros_;
+        s.voice.setUniformShape(uniformShape_);
+        s.voice.setMidiCc1(midiCc1_);
+
+        s.voice.renderBlockSurround714(buf, numSamples);
+        for (int c = 0; c < 12; ++c)
+        {
+            for (int i = 0; i < numSamples; ++i)
+            {
+                outs[c][i] += buf[c][i];
+            }
+        }
+
+        if (!s.voice.isGated() && s.midiNote >= 0)
+        {
+            s.midiNote = -1;
+        }
+    }
+
+    auto busSoftClip = [](float v) noexcept { return v / (1.0f + std::fabs(v)); };
+    for (int c = 0; c < 12; ++c)
+    {
+        for (int i = 0; i < numSamples; ++i)
+        {
+            outs[c][i] = busSoftClip(outs[c][i]);
         }
     }
 }

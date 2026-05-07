@@ -80,6 +80,31 @@ public:
     void renderBlockSurround51(
         float* outL, float* outR, float* outC, float* outLfe, float* outLs, float* outRs, int numSamples) noexcept;
 
+    // Render `numSamples` of 7.1.4 immersive surround (sfs-spec/04 §3.5).
+    // Twelve channels in JUCE order: L, R, C, LFE, Ls, Rs, Lr, Rr, Tfl,
+    // Tfr, Trl, Trr.
+    //
+    // 2D placement (sfs-spec/04 §3.5):
+    //   Floor (7 ch) — y < 0.3·Ny, ITU-R BS.775+ angles around centre
+    //                  (0.5·Nx, 0.2·Ny), radius 0.15·min(Nx, Ny):
+    //                    L  = -30°  R  = +30°  C  =  0°
+    //                    Ls = -90°  Rs = +90°
+    //                    Lr = -150° Rr = +150°
+    //   Height (4 ch) — y > 0.7·Ny, four corners around centre
+    //                   (0.5·Nx, 0.8·Ny), radius 0.15·min(Nx, Ny):
+    //                    Tfl = -45°  Tfr = +45°
+    //                    Trl = -135° Trr = +135°
+    //   LFE — 120 Hz LPF of the 11-channel sum (1st-order, same stub as
+    //         5.1; LR-2 in Phase 4).
+    //
+    // 1D topology: spec downmix-to-stereo. L/R from the existing stereo
+    // render; C = (L+R)/2; Ls/Rs/Lr/Rr copy L/R; height channels zeroed
+    // (no genuine height information from a 1D substrate).
+    //
+    // Channel pointers passed as a 12-element array so we don't burn the
+    // visual budget on twelve named parameters.
+    void renderBlockSurround714(float* const* outs, int numSamples) noexcept;
+
     // Render `numSamples` of first-order horizontal-plane ambisonic
     // (sfs-spec/04 §3.6). 4 channels: W (omni), X (front-back), Y
     // (left-right), Z (up-down, always 0 — substrate is at most 2D).
@@ -234,6 +259,10 @@ private:
     // 5.1 per-channel DC-blocker state (L, R, C, LFE, Ls, Rs).
     std::array<float, 6> dcBlockerLastInput51_{};
     std::array<float, 6> dcBlockerLastOutput51_{};
+
+    // 7.1.4 per-channel DC-blocker state (12 channels in JUCE order).
+    std::array<float, 12> dcBlockerLastInput714_{};
+    std::array<float, 12> dcBlockerLastOutput714_{};
 
     // LFE 120 Hz one-pole LPF state. y[n] = y[n-1] + α·(x[n] - y[n-1]).
     // α set at construction from sample rate.
