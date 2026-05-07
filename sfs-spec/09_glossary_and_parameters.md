@@ -48,7 +48,7 @@ The single source of truth for terminology, mathematical symbols, and the comple
 | `κ` (kappa) | velocity-diffusion coefficient | [0.0, 0.45] (1D, user-facing soft range), [0.0, 0.20] (2D, user-facing soft range); the **joint clamp** above is the hard limit. When user-facing settings would violate the joint clamp, both `c²` and `κ` are softly compressed proportionally so the sum stays within bounds (02 §2.2). | dimensionless | 02 |
 | `γ` (gamma) | substrate per-step loss | [0.0, 0.05] | per sample | 02 |
 | `N` | number of substrate cells (1D) | {256, 512, 1024, 2048, 4096} | cells | 02 |
-| `(W, H)` | substrate dimensions (2D) | {(64,64), (128,128), (256,256)} | cells | 02 |
+| `(W, H)` | substrate dimensions (2D) | {(32,32), (64,64), (128,128), (256,256)} | cells | 02 |
 | `u[x]` | substrate displacement at cell x | [-100, 100] (guard limit; typical \|u\| < 1) | normalised | 02 |
 | `v[x]` | substrate velocity at cell x | unbounded; clamped via stability | per sample | 02 |
 | `p_i` | agent i position | [0, N) | cells (continuous) | 03 |
@@ -89,7 +89,7 @@ The complete list of parameters exposed to the host and stored in presets. Each 
 
 | ID | Type | Range | Default | Host-visible | Description |
 |---|---|---|---|---|---|
-| `structural.topology` | enum | {ring, torus_64, torus_128, torus_256} | ring | yes | Substrate type |
+| `structural.topology` | enum | {ring, torus_32, torus_64, torus_128, torus_256} | ring | yes | Substrate type. Phase 3 ships {ring, torus_32}; the 32×32 torus matches the 1D ring's 1024 total cells for a like-for-like CPU comparison. The larger torus sizes (64/128/256) land alongside SIMD in Phase 4. |
 | `structural.aspect` | float | [0.5, 2.0] | 1.0 | yes | 2D substrate aspect ratio |
 | `structural.substrate_size` | enum | {256, 512, 1024, 2048, 4096} | 1024 | no | 1D cell count |
 | `structural.deposit_kernel` | enum | {linear, lanczos4} | linear | no | Agent deposit interpolation |

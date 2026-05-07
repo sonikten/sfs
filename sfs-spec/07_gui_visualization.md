@@ -119,7 +119,13 @@ The visualiser is **not** the only way to see what's happening; the macro panel 
 
 ### 4.3 Performance budget
 
-GUI rendering must not exceed 5% CPU. The substrate snapshot is downsampled to ≤ 256 samples for the visualiser (1D) or 128×128 for the 2D heatmap. The downsampling happens on the audio thread (cheap) and the GUI thread reads from the most recent complete snapshot.
+GUI rendering must not exceed 5% CPU. The substrate snapshot pipeline is split across threads to keep the audio thread's contribution bounded:
+
+* **Audio thread** writes a raw snapshot of the substrate displacement buffer into a triple-buffered staging slot at the visualiser refresh rate (default 60 Hz, configurable in preferences). For 1D substrates of any size up to 4096, this is a single `memcpy` of ≤ 16 KB — under 1 µs amortised. For 2D substrates ≤ 128×128, the same `memcpy` (64 KB) is acceptable (~3 µs amortised). For 2D substrates above 128×128, the audio thread writes the **raw** snapshot at the substrate's native size; downsampling to the GUI's display resolution happens on a worker thread.
+* **Worker thread** consumes the staging slot and downsamples to the GUI's target render size (256 for 1D strip, 128×128 for 2D heatmap). The worker writes the downsampled buffer to a second triple-buffered slot.
+* **GUI thread** reads from the worker's slot and draws.
+
+This split keeps the audio-thread snapshot cost bounded by a fixed `memcpy` regardless of substrate size, with all signal processing (downsampling, normalisation) on the worker. For offline-render configurations (1024×1024), no live visualisation is provided; a snapshot button captures a single frame on demand.
 
 GPU acceleration (OpenGL via JUCE's Component or a custom GL backend) is recommended for the 2D heatmap. CPU rasterisation is acceptable for the 1D strip.
 
@@ -266,6 +272,49 @@ Status strip across the bottom, ~32 px:
 * **Voice count** (active / max).
 * **Reported latency** in samples and milliseconds.
 * **Init / Save / Load** buttons (tertiary; the preset selector in the header is primary).
+* **Advanced (`•••`) link** opens the Advanced parameter panel (§8a).
+
+## 8a. Advanced parameter panel
+
+The "no surprises" principle requires that every audio-affecting parameter is reachable from the GUI. Many such parameters (e.g., per-LFO `reset_on_note`, `agent.shape_distribution.*`, `harvester.orbit_shape`, `structural.deposit_kernel`) are not promoted onto the macro panel because they are configuration choices, not performance controls. They are reached via the **Advanced parameter panel**, opened from the footer:
+
+```
+┌─ ADVANCED PARAMETERS ───────────────────────────────────────────┐
+│  Filter:  [search…]                          Show:  ☑ All   ▼   │
+│                                                                  │
+│  ▼ Substrate                                                     │
+│      structural.deposit_kernel  [linear   ▼]                     │
+│      structural.read_kernel     [linear   ▼]                     │
+│      structural.substrate_size  [1024     ▼]                     │
+│      substrate.laplacian_order  [5        ▼]   (2D only)         │
+│                                                                  │
+│  ▼ Agents                                                        │
+│      agent.max_active                  [—————•———] 32            │
+│      agent.harmonic_set                [{1, 2, 3, 4, 5, 6, 7, 8}]│
+│      agent.shape_distribution.sine     [—————————•] 0.60         │
+│      agent.shape_distribution.saw      [•———————————] 0.00       │
+│      agent.shape_distribution.square   [•———————————] 0.00       │
+│      agent.shape_distribution.fmpair   [——————•—————] 0.30       │
+│      agent.shape_distribution.noise    [——•—————————] 0.10       │
+│      agent.detune_scale                [•———————————] 0.00       │
+│                                                                  │
+│  ▼ LFOs                                                          │
+│      lfo1.reset_on_note   [☐]   lfo2.reset_on_note   [☑]         │
+│      lfo3.reset_on_note   [☐]   lfo4.reset_on_note   [☐]         │
+│                                                                  │
+│  ▼ Harvesters                                                    │
+│      harvester.orbit_shape  [circle ▼]                           │
+│                                                                  │
+│  ▶ Reserved (read-only)                                          │
+│  ▶ Engine preferences (see ⚙)                                    │
+│                                                                  │
+│  [Reset section]   [Reset all]                  [Close]          │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Every parameter row in 09 §3 (the parameter inventory) appears here, with edit controls appropriate to its type (slider for floats, dropdown for enums, checkbox for booleans, multi-select for arrays). The reserved-fields fold-out shows fields that are persisted but not user-editable in v1.0 (e.g., `shared_substrate`, `substrate.nonlinear_beta`); these are read-only in v1.0 and become editable in later versions.
+
+The Advanced panel is reached by a discreet "•••" link in the footer. New users never need it; advanced users use it routinely.
 
 ## 9. Preferences (`⚙`)
 

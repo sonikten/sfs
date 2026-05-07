@@ -52,7 +52,7 @@ Deliverables:
 * MIDI ingest with note-on/off, pitch bend, CC1.
 * Sample-accurate parameter automation (05 §7).
 
-Gate to Phase 3: a polyphonic 6-note chord plays cleanly with no clicks, voice stealing works, all four sonic-corner contract tests (00 §"contract") pass. CPU at < 30% on a baseline mid-range CPU (Apple M2, Intel i7-12700) for 8 voices.
+Gate to Phase 3: a polyphonic 6-note chord plays cleanly with no clicks, voice stealing works, all four sonic-corner contract tests (00 §"contract") pass. CPU meets the §2.5 benchmark targets for the 1D-32-agent configurations on Apple M2 and Intel i5-12600. The 8-voice / 64-agent configuration is allowed to exceed budget at this gate (it's a stretch goal for Phase 5, optionally relaxed via the user's `engine.max_voices` preference).
 
 ### Phase 3 — 2D substrate, multichannel, MPE (week 12–16)
 
@@ -71,14 +71,14 @@ Gate to Phase 4: 2D mode produces audibly distinct timbres from 1D mode. 5.1 / 7
 
 ### Phase 4 — GUI, preset system, factory presets (week 14–22, parallel with Phase 3)
 
-Build the GUI per 07. Implement preset format, browser, packs, and the 128-preset factory palette.
+Build the GUI per 07. Implement preset format, browser, packs, and the 128-preset factory palette. The factory preset palette (the catalogue of named presets in 09 §4) is **designed and finalised during this phase** — the 09 §4 table sets the category counts and naming intent; individual preset patches are authored, hashed, and contract-tested here.
 
 Deliverables:
 
-* GUI per 07: header, substrate visualiser (1D and 2D modes), macro panel, modulation matrix, envelope/LFO editors, footer.
+* GUI per 07: header, substrate visualiser (1D and 2D modes), macro panel, modulation matrix, envelope/LFO editors, Advanced parameter panel, footer.
 * Preset format per 06 §3, with load/save and migration scaffolding.
 * Preset browser with search, filter, and pack support.
-* 128 factory presets with audio hashes verified.
+* 128 factory presets authored and named, with audio hashes verified per 06 §3.3 and contract-test categorisation per §2.3.
 * In-app manual (07 §10).
 
 Gate to Phase 5: GUI passes accessibility check (basic keyboard navigation, no information conveyed by colour alone). All 128 factory presets render bit-identically across platforms. Preset load times < 50 ms cold.
@@ -135,14 +135,24 @@ The factory preset palette is the integration test corpus: 128 presets × multip
 
 ### 2.3 Sonic-corner contract tests
 
-For each of the four sonic-character corners, an automated listening test (00 §"contract"):
+For each of the four sonic-character corners, an automated listening test runs on every CI pass against a designated canonical preset (one per corner). Failure blocks the build.
 
-* **Drone**: render a 60-second sustain. Compute spectral centroid every 100 ms. Variance must be < 5% of mean.
-* **Organic**: render a 60-second sustain. Compute spectral centroid; band-pass filter at 0.1–0.5 Hz; the filtered signal's RMS must exceed a threshold (i.e., real motion exists in this band).
-* **Pitched**: render a chromatic scale C2–C7 at velocity 100. Run YIN (or pYIN) pitch tracking. Voicing confidence must be ≥ 0.95 at all notes.
-* **Glitch**: render a 60-second sustain. Run an onset detection (e.g., spectral flux) and count onsets. Must have ≥ 60 onsets in 60 s. RMS must stay within −12 dBFS bound.
+Common analysis parameters:
 
-Test runs on every CI pass for the four "canonical" presets (one per corner). Failure blocks the build.
+* Render parameters per the canonical render in 06 §2.1 (48 kHz, 256-sample blocks, stereo, 32-bit float PCM, no dither, fixed MIDI sequence).
+* Mixdown for analysis: stereo → mono via `0.5 · (L + R)`.
+* Analysis libraries: `librosa` (Python) is the reference implementation; CI may use a vendored copy at a pinned version (currently `librosa==0.10.x`).
+
+Per-corner tests:
+
+| Corner | Render | Analysis | Pass criterion |
+|---|---|---|---|
+| **Drone** | C4 sustained 60 s, MIDI velocity 100, gate-on at t=0, gate-off at t=58 s, render to t=60 s | Spectral centroid via STFT (`n_fft=4096`, `hop_length=1024`, Hann window). Compute centroid value at each frame. | `stddev(centroid) / mean(centroid) < 0.05` over the 5–55 s window (excluding attack and release). |
+| **Organic** | C3 sustained 60 s, MIDI velocity 90, gate-on at t=0, gate-off at t=58 s | Spectral centroid as above. Band-pass filter the centroid time series with a 4th-order Butterworth between 0.1 Hz and 0.5 Hz. | `RMS(filtered_centroid) > 50.0` (centroid units, i.e., Hz). The threshold is the documented v1.0 floor; presets that don't move enough fail. |
+| **Pitched** | Chromatic scale C2 → C7 at 1 note/sec, MIDI velocity 100, each note held 0.8 s with 0.2 s gap | YIN pitch tracking (`librosa.yin`) with `fmin=50`, `fmax=2000`, `frame_length=2048`, `threshold=0.15`. For each played note, take median estimated f0 over the central 0.5 s of the note. | For all 61 notes, `abs(log2(estimated_f0 / expected_f0)) < 0.05` (i.e., within ~3% of expected pitch) AND voicing-confidence ≥ 0.85 at each note. |
+| **Glitch** | C4 sustained 60 s, MIDI velocity 100 | Onset detection via spectral flux (`librosa.onset.onset_detect`, `sr=48000`, `hop_length=512`, default thresholds). Count onsets in the 5–55 s window. RMS of waveform over rolling 100 ms windows. | `onset_count / 50 ≥ 1.0` (≥ 50 onsets in 50 s) AND `max(rolling_rms_dBFS) < -3 dBFS` AND `mean(rolling_rms_dBFS) > -36 dBFS` (texture is present and not clipped). |
+
+Each canonical preset is tagged in the preset metadata as `tags: ["contract:drone"]` etc. so the test rig can find them. The contract presets are part of the Init series (09 §4) and are owned by the spec, not by sound designers — they are the operational definition of each corner.
 
 ### 2.4 Stability tests
 
@@ -152,16 +162,20 @@ Runs nightly, not per-commit.
 
 ### 2.5 CPU benchmarks
 
-A benchmark suite measures CPU usage at fixed configurations:
+A benchmark suite measures CPU usage at fixed configurations. All targets are single-thread unless noted; multi-core voice rendering is a v1.2 deliverable.
 
 | Config | Target on Apple M2 | Target on Intel i5-12600 |
 |---|---|---|
-| 1 voice, 1D, 1024 cells, 32 agents, default macros | < 4% one core | < 6% one core |
-| 8 voices, 1D, 1024 cells, 32 agents, default macros | < 30% one core | < 50% one core |
-| 1 voice, 2D, 64×64, 32 agents, default macros | < 8% one core | < 12% one core |
-| 8 voices, 2D, 64×64, 32 agents, default macros | < 60% one core | < 100% one core (i.e., needs S=2) |
+| 1 voice, 1D, 1024 cells, 32 agents, AVX2/NEON, STD oversample | < 4% one core | < 6% one core |
+| 4 voices, 1D, 1024 cells, 32 agents, AVX2/NEON, STD oversample | < 16% one core | < 24% one core |
+| 8 voices, 1D, 1024 cells, 32 agents, AVX2/NEON, STD oversample | < 35% one core | < 60% one core |
+| 8 voices, 1D, 1024 cells, 64 agents, AVX2/NEON, STD oversample | < 60% one core | < 95% one core |
+| 1 voice, 2D, 64×64, 32 agents, AVX2/NEON, STD (S=2) oversample | < 8% one core | < 12% one core |
+| 8 voices, 2D, 64×64, 32 agents, AVX2/NEON, STD (S=2) oversample | < 60% one core | needs ECO (S=4) or 4-voice cap |
 
-Regression alerts trigger if any benchmark exceeds its target by 10%.
+These are budgets, not promises: regression alerts trigger if any benchmark exceeds its target by 10%. The 8-voice 64-agent configuration is the most demanding default-shape scenario; the realistic v1.0 release-quality target is **8 voices, 1D, 32 agents on a 2024-class CPU at < 50% one core**, which is what the listening tests use.
+
+Document 03 §9 explains the per-voice cost decomposition that produced these numbers; the 1D 64-agent case is computed (5 µs substrate + 1.5 µs agents) × 48000 samples/s × 8 voices = ~52% on SSE2, ~30% on AVX2, hence the 60% / 95% targets above (with platform-specific overhead).
 
 ### 2.6 Pluginval
 
@@ -241,11 +255,17 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Determinism flags applied to every target.
 if(MSVC)
-    add_compile_options(/W4 /WX /fp:precise /arch:AVX2)
+    add_compile_options(/W4 /WX /fp:precise)
 else()
-    add_compile_options(-Wall -Wextra -Werror -fno-fast-math -mavx2)
+    add_compile_options(-Wall -Wextra -Werror -fno-fast-math)
 endif()
+
+# Architecture-conditional SIMD flags. The audio kernels live in their own
+# translation units (engine/dsp/kernels_simd.cpp etc.) so we can apply
+# instruction-set flags only where they make sense.
+include(cmake/SimdConfig.cmake)            # defines target_simd_flags()
 
 # Subprojects:
 add_subdirectory(third_party/JUCE)
@@ -258,9 +278,32 @@ add_subdirectory(plugin)        # the VST3 wrapper
 add_subdirectory(tests)         # unit + integration tests
 ```
 
-`-fno-fast-math` is mandatory for determinism. `-mavx2` is the default; runtime SSE2/NEON fallback paths are dispatched in code, but the compile target requires AVX2 for the desktop binary.
+The `target_simd_flags()` helper in `cmake/SimdConfig.cmake` applies SIMD compile flags conditionally:
 
-A separate "ECO" build with `-mavx -mno-avx2` is offered for older CPUs.
+```
+function(target_simd_flags target)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x64")
+    if(MSVC)
+      target_compile_options(${target} PRIVATE /arch:AVX2)
+    else()
+      target_compile_options(${target} PRIVATE -mavx2 -mfma)
+    endif()
+    target_compile_definitions(${target} PRIVATE SFS_SIMD_X86=1)
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+    # ARM64 implies NEON; no flag needed beyond -arch arm64 which CMake handles.
+    target_compile_definitions(${target} PRIVATE SFS_SIMD_NEON=1)
+  endif()
+endfunction()
+```
+
+Critically:
+
+* `-mavx2` is applied **only to x86_64 build targets** that contain the AVX2 fast-path kernels. Apple Silicon (arm64) builds do not see `-mavx2` and would fail to compile if they did.
+* macOS universal builds (x86_64 + arm64) use CMake's `CMAKE_OSX_ARCHITECTURES` mechanism to compile each architecture slice with its own per-arch flags via `add_compile_options(-Xarch_x86_64 -mavx2)`.
+* Runtime SIMD dispatch: even on x86_64 binaries built with `-mavx2`, the engine probes the CPU at startup and falls back to SSE2 paths on machines without AVX2. The AVX2 kernels are isolated in TUs that are only invoked when `SFS_HAS_AVX2_RUNTIME` is true.
+* `-fno-fast-math` is mandatory for determinism (per 06 §2.3).
+
+An "ECO" build with only SSE2/NEON kernels (no AVX2) is an opt-in CMake option `-DSFS_BUILD_ECO=ON` for distributing to older CPUs.
 
 ## 7. Licensing
 
@@ -315,7 +358,13 @@ Triage:
 
 Total: ~6 months from kickoff. This assumes 1 senior DSP engineer + 0.5 GUI/product engineer, full-time. Half that staffing roughly doubles the timeline; double staffing reduces it modestly (Phase 1–3 is mostly serial).
 
-## 11. Open questions
+## 11. Patent and prior-art work (separate document)
+
+The novelty argument and prior-art comparison live in the original research document (`stigmergic_field_synthesis.md`), and the closest-neighbour analysis was reviewed in §5–§6 of that document. v1.0 release **does not** include patent filings; the legal/positioning work is tracked in a separate `patent_claims.md` document (drafted before any public announcement, not part of this implementation specification).
+
+A formal prior-art search across Yamaha, Roland, Korg, Madrona Labs, U&I, Native Instruments, and CCRMA/IRCAM publications (2005–present) is a release-blocking item but lives outside this v1.0 spec. The risk register in §9 captures the dependency. Implementation work on the engine and plug-in proceeds in parallel with that legal track; an unfavourable prior-art finding would not change the engine specification, only the public claims.
+
+## 12. Open questions
 
 * **Cloud preset sync.** A subscription product around preset-sharing is plausible but out of scope for v1.0.
 * **MPE+ / MIDI 2.0 native.** v1.0 supports MPE via VST3 Note Expression. Native MIDI 2.0 is reserved for v1.1.

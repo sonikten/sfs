@@ -40,7 +40,7 @@ f_inst = f_i + m_i · u_at · f_i      // bend is proportional to base freq → 
 
 // 3. Advance phase
 phase_inc = f_inst / fs
-φ_i = φ_i + phase_inc - floor(φ_i + phase_inc)   // wrap to [0, 1)
+φ_i = dm_fract(φ_i + phase_inc)                  // dm_fract = x - dm_floor(x); wraps to [0, 1)
 
 // 4. Generate waveform sample
 y_i = waveform(shape, φ_i, shapeParam, phase_inc)
@@ -76,11 +76,11 @@ v1.0 ships five agent waveforms. All are antialiased to within 60 dB of the Nyqu
 
 ### 3.1 Sine
 
-Bandlimited by definition. Uses a polynomial approximation of `sin(2π · φ)`:
+Bandlimited by definition. Uses the deterministic primitive `dm_sin` (06 §"Deterministic math primitives"), which is a 5th-order polynomial approximation of `sin(2π · φ)`:
 
 ```c++
-// 5th-order polynomial approximation, max error 1e-6
-inline float sineApprox(float phase01) {
+// dm_sin: 5th-order polynomial approximation, max error 1e-6, bit-exact across platforms
+inline float dm_sin(float phase01) {
     float x = phase01 * 2.0f - 1.0f;     // [-1, 1]
     float x2 = x * x;
     float y = x * (1.5708f + x2 * (-0.6435f + x2 * (0.0795f - x2 * 0.0049f)));
@@ -88,7 +88,7 @@ inline float sineApprox(float phase01) {
 }
 ```
 
-Cost: ~5 mul, 4 add per sample. Cheaper than `std::sin` and reproducible across platforms.
+Cost: ~5 mul, 4 add per sample. Substantially cheaper than `std::sin` and reproducible across platforms by construction. The agent loop must call `dm_sin` and never `std::sin` or `sinf` (see 01 §9 and 06 §"Deterministic math primitives").
 
 ### 3.2 Saw (PolyBLEP)
 
@@ -121,7 +121,7 @@ Same polyBLEP at both `phase01 = 0` and `phase01 = 0.5`:
 inline float squarePolyBlep(float phase01, float dt) {
     float y = (phase01 < 0.5f) ? 1.0f : -1.0f;
     y -= polyBlep(phase01, dt);
-    y += polyBlep(fmodf(phase01 + 0.5f, 1.0f), dt);
+    y += polyBlep(dm_fract(phase01 + 0.5f), dt);
     return y;
 }
 ```
@@ -130,17 +130,22 @@ inline float squarePolyBlep(float phase01, float dt) {
 
 A two-operator FM oscillator: a single carrier-modulator pair with fixed ratio and depth. Inexpensive way to give agents bell-like and metallic timbres without a full FM tree.
 
-```c++
-// shapeParam encodes ratio (0..255 → 0.25 to 4.0) and index (0..255 → 0 to 8.0)
-ratio = 0.25f * powf(2.0f, (shapeParam & 0xFF) / 64.0f);
-index = 8.0f * ((shapeParam >> 8) & 0xFF) / 255.0f;
+`ratio` and `index` are computed at voice ignition and held constant through the voice's life — `dm_pow` (06) is invoked once at ignition, never per sample, so no expensive transcendental runs in the inner loop:
 
-mod_phase = fmodf(φ_i * ratio, 1.0f);
-mod_out   = sineApprox(mod_phase);
-y_i       = sineApprox(fmodf(φ_i + index * mod_out / (2π), 1.0f));
+```c++
+// At voice ignition (one-time, not per sample):
+//   shapeParam encodes ratio (0..255 → 0.25 to 4.0) and index (0..255 → 0 to 8.0)
+ratio = 0.25f * dm_pow(2.0f, (shapeParam & 0xFF) / 64.0f);
+index = 8.0f * ((shapeParam >> 8) & 0xFF) / 255.0f;
+inv_two_pi = 0.15915494f;                // precomputed; stored on the agent
+
+// Per sample (inner loop, only deterministic primitives):
+mod_phase = dm_fract(φ_i * ratio);       // dm_fract: x - dm_floor(x), bit-exact
+mod_out   = dm_sin(mod_phase);
+y_i       = dm_sin(dm_fract(φ_i + index * mod_out * inv_two_pi));
 ```
 
-Bandlimited only in the loose sense — at extreme `index`, FM produces high partials that approach Nyquist. Mitigated by gating the agent above `f_inst > fs/4 / (1 + index)`.
+Bandlimited only in the loose sense — at extreme `index`, FM produces high partials that approach Nyquist. Mitigated by gating the agent above `f_inst > fs/4 / (1 + index)`. `dm_fract` is the deterministic fractional-part primitive (06).
 
 ### 3.5 Noise
 
@@ -230,13 +235,15 @@ For SIMD, batch the Gaussian generation: use a small per-voice ring buffer of pr
 
 ### 5.3 Wrap
 
-Position wraps modulo `N` (1D) or `(W, H)` (2D). Always-positive wrap:
+Position wraps modulo `N` (1D) or `(W, H)` (2D). Always-positive wrap, using the deterministic floor primitive:
 
 ```c++
 inline float wrapPosition(float p, float N) {
-    return p - N * floorf(p / N);
+    return p - N * dm_floor(p / N);
 }
 ```
+
+`dm_floor` is bit-exact across platforms (06 §"Deterministic math primitives"); the standard library's `floorf` is not used on the audio path.
 
 ## 6. Bandlimiting and silencing
 
@@ -320,14 +327,27 @@ Per voice, per audio sample, with 64 active agents:
 | Component | Approx ops/sample | Cost @ 48 kHz, scalar |
 |---|---|---|
 | Substrate read for bend (linear interp) | 64 × 4 = 256 | 0.5 µs |
-| Phase update + waveform | 64 × 12 = 768 | 1.5 µs |
+| Phase update + waveform (deterministic dm_sin etc.) | 64 × 12 = 768 | 1.5 µs |
 | Envelope step | 64 × 6 = 384 | 0.7 µs |
 | Deposit (linear kernel) | 64 × 2 = 128 | 0.3 µs |
 | Migration update | 64 × 4 = 256 | 0.5 µs |
-| RNG (batched) | 64 / 8 = 8 | 0.1 µs |
-| **Total per voice** | **~1800** | **~3.5 µs scalar; ~1.5 µs SSE2** |
+| RNG (vectorised Philox, batched) | 64 / 8 = 8 | 0.1 µs |
+| **Total per voice (agents only)** | **~1800** | **~3.5 µs scalar; ~1.5 µs SSE2; ~0.9 µs AVX2** |
 
-Combined with substrate (~5 µs SIMD for 1D-1024), one voice is ~6.5 µs per sample at 48 kHz, or ~31% of one core for a single voice. SIMD agent loop and AVX2 brings this to ~3 µs per voice; 8 voices fits in roughly 25% of one modern core.
+These per-sample numbers are budgets, not measurements; the CPU gate at release uses real benchmarks per 08 §2.5.
+
+Combined with the substrate update (02 §7.3: ~5 µs SSE2 / ~3 µs AVX2 for 1D `N=1024`):
+
+| Configuration | Cost per voice per sample | At 48 kHz | One core capacity |
+|---|---|---|---|
+| 1D N=1024, 64 agents, scalar | ~14 µs | 67% of one core | 1.5 voices |
+| 1D N=1024, 64 agents, SSE2 | ~6.5 µs | 31% of one core | 3 voices |
+| 1D N=1024, 64 agents, AVX2 | ~4 µs | 19% of one core | 5 voices |
+| 1D N=1024, 32 agents, AVX2 | ~3.2 µs | 15% of one core | 6 voices |
+
+**Eight-voice polyphony at full default settings is not single-thread on one modern core.** Achieving 8 voices in real time requires one of: (a) thread-pooling voice rendering across multiple cores (planned for v1.2); (b) reducing per-voice agent count to 32; (c) running 2D substrates at `S = 2` per the default oversample mode (01 §5.2); or (d) a combination. Document 08's release gate is calibrated against these realities (08 §2.5).
+
+The original research document's "well within a modern desktop CPU" claim referred to the 32-agent SSE2 configuration with multi-core voice rendering. The v1.0 release gate is more honest: 4 voices on one AVX2 core under default settings, with 8-voice polyphony requiring multi-core or reduced-density configurations.
 
 ## 10. Test vectors
 

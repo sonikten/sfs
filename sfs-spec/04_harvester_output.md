@@ -92,34 +92,47 @@ Four harvesters at `(N/4) · k` for `k = 0, 1, 2, 3`. Channel order follows the 
 
 ### 3.4 5.1
 
-Five full-bandwidth harvesters; the LFE channel is a low-passed (120 Hz) sum of the five at unity gain. LFE is filtered with a 2nd-order Linkwitz–Riley low-pass.
+Available in 2D-substrate topologies only. In 1D mode, 5.1 layouts downmix to stereo at the output stage.
 
-Harvester positions in 1D: equally spaced for L, R, Ls, Rs at `(N/4) · k`, with C harvester at `N/8`. Yes, this is asymmetric; symmetric is `(0.5 - sin(2π·k/5))` style placement, which is what we use.
+Five full-bandwidth harvesters plus one LFE-derived channel:
 
-For 2D, harvesters are placed in a horseshoe in the front half of the torus, with surround channels in the back half.
+* The LFE channel is a low-passed (120 Hz, 2nd-order Linkwitz–Riley) sum of the five full-bandwidth harvesters at unity gain.
+* The five full-bandwidth harvesters are placed by **angle on the substrate** following the standard ITU-R BS.775 listening positions: L = −30°, R = +30°, C = 0°, Ls = −110°, Rs = +110°. These angles are mapped onto a circular path on the 2D torus centred at `(0.5 W, 0.5 H)` with radius `0.4 · min(W, H)`.
+
+The angular placement is the normative scheme; earlier text in drafts of this document mentioned other equally-spaced or `N/8`-based schemes — those are not the v1.0 layout.
+
+For 2D substrates, harvesters at the listening angles read the substrate at `(0.5 + 0.4 · cos(θ), 0.5 + 0.4 · sin(θ))` with θ corresponding to each channel's angle.
 
 ### 3.5 7.1.4 (Atmos)
 
-Eleven full-bandwidth harvesters + one LFE. In 2D mode, the four height channels (`Lts`, `Rts`, `Lrs`, `Rrs`) are placed at `y > 0.7 H` while the seven floor channels span `y < 0.3 H`. The mid-region of the torus is "above the audience" and shows as visual interest in the GUI.
+Available in 2D-substrate topologies only. In 1D mode, 7.1.4 layouts downmix to stereo at the output stage.
 
-In 1D mode, 7.1.4 is downmixed to stereo — the 1D substrate doesn't have enough spatial complexity to justify 11 channels.
+Eleven full-bandwidth harvesters plus one LFE-derived channel. In 2D mode, the four height channels (`Lts`, `Rts`, `Lrs`, `Rrs`) are placed at `y > 0.7 H` while the seven floor channels span `y < 0.3 H`. The mid-region of the torus is "above the audience" and shows as visual interest in the GUI.
 
-### 3.6 1st-order Ambisonic (W, X, Y, Z)
+The 1D mode does not pretend to deliver true 7.1.4: although a 1D ring with 11 harvesters can produce 11-channel output, the lack of a second dimension means height channels carry no genuine height information. Marketing copy must describe v1.0 7.1.4 as "2D-mode only" to set the right expectation. Users who select a 7.1.4 layout while a 1D preset is loaded see a downmix-to-stereo notice and the host receives stereo output until the user switches to a 2D topology.
 
-Reserved for v1.0 listeners using ambisonic chain. Encoded by treating four harvester positions as the corners of a tetrahedron projected onto the substrate, then linearly combining their outputs into the W (omni), X (front-back), Y (left-right), Z (up-down) channels following the SN3D / ACN convention.
+### 3.6 First-order ambisonic (W, X, Y) — horizontal-plane only
 
-For 1D substrate (no Z), Z = 0 and the encoding reduces to 2D first-order (W, X, Y).
+Available in 2D-substrate topologies only. In 1D mode, FOA layouts downmix to stereo.
 
-For 2D substrate, the 4 harvesters are placed at `(0.25 W, 0.25 H), (0.25 W, 0.75 H), (0.75 W, 0.25 H), (0.75 W, 0.75 H)`. The X/Y/Z encoding then becomes:
+v1.0 ships **horizontal-plane** first-order ambisonic output. The substrate is at most 2D; there is no third spatial dimension, so the Z (up-down) ambisonic channel is always zero. The output is therefore B-format (W, X, Y) compatible with any FOA decoder, with `Z = 0` always. Calling this "first-order ambisonic" is conventional; calling it "true 3D FOA" would be wrong.
+
+For 2D substrate, the 4 harvesters are placed at `(0.25 W, 0.25 H), (0.25 W, 0.75 H), (0.75 W, 0.25 H), (0.75 W, 0.75 H)`. The encoding follows the SN3D / ACN convention:
 
 ```
 W = 0.5 · (h0 + h1 + h2 + h3)
-X = 0.5 · (h2 + h3 - h0 - h1)
-Y = 0.5 · (h1 + h3 - h0 - h2)
-Z = 0.0  (no third dimension in 2D substrate)
+X = 0.5 · (h2 + h3 - h0 - h1)            // front-back
+Y = 0.5 · (h1 + h3 - h0 - h2)            // left-right
+Z = 0.0                                  // no third dimension in 2D substrate
 ```
 
-Higher-order ambisonics are deferred to v1.2.
+True 3D first-order ambisonics requires either a 3D substrate (a future research direction, not v1.x) or a virtual height encoding (deferred). Higher-order ambisonics (2nd order +) are deferred to v1.2.
+
+### 3.7 Layout activation and the 16-harvester budget
+
+Only one channel layout is active at a time per voice. Switching layouts (e.g., from stereo to 5.1) reconfigures the harvester bank: previously-active harvesters are deactivated and new ones placed at their layout-specified positions.
+
+The 16-harvester budget per voice (09 §6) was sized so the bank can accommodate the largest single v1.0 layout (7.1.4 = 12 harvesters) with headroom for v1.x expansion (3rd-order ambisonics needs 16). Two layouts cannot be active simultaneously on the same voice; voices in the same instance can target the same single host channel layout because the host enforces a single output configuration.
 
 ## 4. Harvester orbits
 
@@ -172,24 +185,22 @@ User-controlled `MASTER_GAIN` macro, default 0 dB. Range −60 dB to +12 dB.
 
 ### 6.2 Soft saturator
 
-A tanh-based soft saturator runs continuously to catch pathological bursts (e.g., a `EXCITATION = 1.0` patch on an extreme `TENSION` setting). The saturator threshold is fixed at −3 dBFS; below that, it is mathematically identity to within 0.05 dB.
+A soft saturator runs continuously to catch pathological bursts (e.g., a `EXCITATION = 1.0` patch on an extreme `TENSION` setting). The saturator threshold is fixed at −3 dBFS; below that, it is mathematically identity to within 0.05 dB.
+
+The implementation uses the deterministic primitive `dm_tanh` (06 §"Deterministic math primitives"), a Padé approximation of tanh (max error 0.001):
 
 ```c++
-inline float softSat(float x, float drive = 1.0f) {
-    return tanhf(drive * x) / drive;
-}
-```
-
-A polynomial approximation of tanh (5th order, max error 0.001) is used for reproducibility:
-
-```c++
-inline float tanhApprox(float x) {
+// dm_tanh: bit-stable Padé approximation; used everywhere on the audio path.
+// std::tanh and tanhf are forbidden on the audio path (01 §9, 06).
+inline float dm_tanh(float x) {
     float x2 = x * x;
     return x * (27.0f + x2) / (27.0f + 9.0f * x2);
 }
-```
 
-This is the [Padé approximation](https://en.wikipedia.org/wiki/Pad%C3%A9_approximant) and is bit-stable across platforms.
+inline float softSat(float x, float drive = 1.0f) {
+    return dm_tanh(drive * x) / drive;
+}
+```
 
 ### 6.3 DC blocker (output stage)
 

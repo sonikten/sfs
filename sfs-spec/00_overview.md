@@ -6,9 +6,9 @@ Stigmergic Field Synthesis: complete v1.0 engine specification
 
 ## How to read this specification
 
-This is a multi-document specification for the v1.0 release of the Stigmergic Field Synthesis (SFS) engine and its corresponding VST3 instrument plug-in. It assumes the reader is familiar with the [original research document](../stigmergic_field_synthesis.md), which establishes the synthesis paradigm itself, its novelty argument, and the four sonic-character corners the engine targets.
+This is a multi-document specification for the v1.0 release of the Stigmergic Field Synthesis (SFS) engine and its corresponding VST3 instrument plug-in. It assumes the reader is familiar with the [original research document](../stigmergic_field_synthesis.md), which establishes the synthesis paradigm itself, its novelty argument, and the four sonic-character corners the engine targets. Where the research document and this v1.0 specification disagree on implementation choices (per-voice instancing, deferred topologies, channel-layout scope), this specification is canonical.
 
-The specification is split across nine documents because the v1.0 surface is too large for a single readable file. Each document is independently buildable into a milestone — i.e., a DSP engineer can implement document 02 without depending on the GUI document 07 having stabilised, and vice versa.
+The specification is split across **ten documents** (00 through 09) because the v1.0 surface is too large for a single readable file. Each document is independently buildable into a milestone — i.e., a DSP engineer can implement document 02 without depending on the GUI document 07 having stabilised, and vice versa.
 
 | # | Document | Primary audience | Build dependency |
 |---|---|---|---|
@@ -23,7 +23,11 @@ The specification is split across nine documents because the v1.0 surface is too
 | 08 | [Implementation roadmap and tests](08_implementation_roadmap.md) | DSP + project lead | Needs all above |
 | 09 | [Glossary and parameter reference](09_glossary_and_parameters.md) | Everyone | Reference |
 
-A symbol or term highlighted in **bold-italic** is defined in document 09. A parameter named in `code font` corresponds 1:1 to a parameter ID in document 09's parameter table.
+A symbol or term highlighted in **bold-italic** is defined in document 09. A parameter named in `code font` falls into one of three categories, each catalogued in document 09:
+
+* **Host-exposed parameters** — IDs of the form `macro.*`, `structural.*`, `agent.*`, `lfo{i}.*`, `env{i}.*`, `harvester.*`, `output.*`. Listed in 09 §3 with ranges, defaults, and host visibility. These appear in VST3 automation lists and persist in presets.
+* **Internal engine fields** — names of the form `substrate.tension`, `substrate.viscosity`, `substrate.size`, `substrate.c2`, `agent.active_count`, `voice.gate_threshold`, etc. These are private engine implementation details that the macros and structural selectors fan out into. Catalogued in 09 §"Internal engine fields" for reference; not directly user-controllable.
+* **Modulation destinations** — the 24 destination targets the modulation matrix can write to. Catalogued in 09 §"Modulation destinations" with their corresponding base parameters.
 
 ## What v1.0 is, and is not
 
@@ -34,9 +38,9 @@ v1.0 ships with:
 * Up to 64 agents per voice, with five agent waveform types.
 * Six primary macros (TENSION, DAMPING, DENSITY, MIGRATION, COHERENCE, EXCITATION) plus two structural selectors (TOPOLOGY, ASPECT).
 * A 16-slot modulation matrix with 12 source types and 24 destination targets.
-* Native stereo, quad, 5.1, and 7.1.4 multichannel layouts; first-order ambisonic output.
+* Native stereo and quad multichannel layouts in any topology. Native 5.1, 7.1.4, and horizontal-plane first-order ambisonic (W, X, Y; Z = 0 because the substrate is 2D) layouts in 2D-substrate topologies. In 1D mode, layouts above quad downmix to stereo.
 * A counter-based seeded RNG with bit-exact preset reproducibility across platforms.
-* A preset format with versioning and a `factory_palette` of 128 presets covering all four sonic-character corners.
+* A preset format with versioning and a target factory palette of 128 presets covering all four sonic-character corners (final preset list finalised during Phase 4 of the roadmap, see 08).
 * A live substrate visualiser (1D strip and 2D heatmap modes).
 * Sample-accurate parameter automation per VST3.
 * MPE Note Expression input as a first-class modulation source.
@@ -44,10 +48,13 @@ v1.0 ships with:
 v1.0 explicitly does **not** include:
 
 * The Möbius and Klein substrate topologies (deferred to v1.1; the macro selector reserves the values, but they fall back to torus).
+* True 3D first-order ambisonic output (the substrate is at most 2D, so Z is always 0; horizontal-plane FOA only in v1.0).
 * Higher-order ambisonics beyond first order (deferred to v1.2).
+* 7.1.4 and 5.1 in 1D substrate mode (1D supports up to quad natively; larger layouts in 1D mode downmix to stereo).
 * External audio input as substrate excitation (deferred to v2.0; the architecture keeps the seam open).
 * AU and AAX wrappers (deferred to v1.3; the engine is plug-in-format-agnostic but only the VST3 wrapper ships at v1.0).
 * User-extensible agent waveform plugins (deferred to v2.0).
+* Patent-claim drafting and formal prior-art search (a separate document; see 08 §11).
 
 ## Versioning and compatibility commitment
 

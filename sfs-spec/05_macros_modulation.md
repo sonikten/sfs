@@ -113,16 +113,18 @@ smooth_value[n] = α · target_value + (1 - α) · smooth_value[n-1]
 
 with per-parameter time constants:
 
-| Parameter class | Smoothing time | Why |
+| Internal field | Smoothing time | Why |
 |---|---|---|
-| `substrate.c2`, `gamma` | 50 ms | Audible discontinuities if faster |
+| `substrate.c2`, `substrate.gamma` | 50 ms | Audible discontinuities if faster |
 | `agent.frequency_*` | 30 ms | Agent pitch needs to track macro automation |
 | `agent.deposit_weight_scale` | 10 ms | Fast click suppression |
 | `agent.harmonic_lock` | 200 ms | Discrete decision; long smoothing avoids zipper |
 | `harvester.position_offset` | 100 ms | Spatial wandering should feel slow |
 | `agent.active_count` | n/a | Step change with 50 ms agent fade-in/out |
 
-`α = 1 - exp(-1 / (τ · fs))` where `τ` is the time constant in seconds.
+The smoothing coefficient `α = 1 - dm_exp(-1 / (τ · fs))` is computed at `setActive()` time using the deterministic exponential primitive `dm_exp` (06 §"Deterministic math primitives"), and held constant until `setActive(false)`. Because `α` is computed at block-rate setup, not per audio sample, library `std::exp` would also be acceptable here — but using `dm_exp` everywhere keeps the determinism contract trivially auditable.
+
+The internal field names in the table (`substrate.c2`, `agent.harmonic_lock`, etc.) are catalogued in 09 §"Internal engine fields"; they are private engine state, not user-controllable. Users reach them through the macros (09 §3.1) or modulation matrix destinations (09 §"Modulation destinations").
 
 ## 5. The modulation matrix
 
@@ -153,7 +155,7 @@ v1.0 has **16 slots**. Each slot is independent.
 | `KEY_NOTE` | MIDI note number, mapped to [0, 1] over the 0–127 range |
 | `KEY_VELOCITY` | MIDI note-on velocity |
 | `MPE_PRESSURE` | Per-note pressure (channel pressure on monophonic) |
-| `MPE_SLIDE` | CC74 (per-note slide) |
+| `MPE_SLIDE` (also: `MPE_TIMBRE`) | CC74 per-note Y axis. The MPE 1.0 spec uses the general term "timbre" for CC74; vendors variously call it "slide" (Roli) or "Y" (LinnStrument). The engine enum uses `MpeTimbre`; the modulation matrix exposes the same source under either name. |
 | `RANDOM` | Per-note random value, seeded |
 | `MIDI_CC1` | Mod wheel by default; user-remappable |
 
@@ -161,7 +163,7 @@ Each LFO has its own rate, depth, shape, and reset behaviour (`free`, `note_rese
 
 ### 5.3 Destinations (24 in v1.0)
 
-The destinations mirror the macros plus selected low-level parameters:
+The destinations mirror the macros plus selected low-level parameters. Each destination has a canonical ID, target base parameter, range, and base-value semantics catalogued in document 09 §"Modulation destinations". The summary list:
 
 ```
 TENSION, DAMPING, DENSITY, MIGRATION, COHERENCE, EXCITATION,    // 6 macros
@@ -176,7 +178,7 @@ ENV2_ATTACK, ENV2_RELEASE,
 SUBSTRATE_SIZE_OFFSET (reserved)
 ```
 
-User-extensible destinations (e.g., per-LFO depth) are deferred to v2.0.
+The 24 destinations form their own canonical ID space distinct from the host parameter inventory in 09 §3. A modulation destination targets an underlying parameter (e.g., `TENSION` destination drives `macro.tension`); document 09 specifies the mapping. User-extensible destinations (e.g., per-LFO depth) are deferred to v2.0.
 
 ### 5.4 Evaluation
 

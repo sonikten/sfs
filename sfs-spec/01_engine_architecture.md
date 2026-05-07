@@ -78,7 +78,7 @@ The engine runs at three distinct rates:
 
 **Block rate is the seam between control and DSP.** Macros and modulation evaluate once per block, then **smoothed** across the block at audio rate inside the affected DSP nodes (substrate `c²`, agent `f_i`, harvester position). Smoothing is per-parameter with parameter-specific time constants documented in 05.
 
-Sample-accurate automation per VST3 is supported by **subdividing** the block at parameter-change boundaries. This is implemented in the plug-in shell, not the engine: the shell calls the engine's `process(numSamples)` multiple times per host block when a parameter automation event arrives mid-block. The engine itself sees a normal sequence of variable-length blocks.
+Sample-accurate automation per VST3 is supported by **subdividing** the block at parameter-change boundaries. This is implemented in the plug-in shell, not the engine: the shell calls the engine's top-level `Engine::process(numSamples, audioOut)` multiple times per host block when a parameter automation event arrives mid-block. The engine internally loops `engineStep()` per sample (§5.4); the multiple `process()` calls per block are the shell's slicing, not the engine's. The engine sees a normal sequence of variable-length blocks.
 
 ## 4. Threading model
 
@@ -102,11 +102,17 @@ A background worker thread handles preset load/save (file I/O is never on the au
 
 ### 4.4 Cross-thread communication
 
-A single typed lock-free SPSC ring buffer (one producer per non-audio thread) carries:
+The engine maintains **one SPSC (single-producer, single-consumer) ring buffer per non-audio producer thread**, all consumed by the audio thread. v1.0 has three such queues:
+
+* `guiToAudio` — produced by the GUI thread (parameter edits from knob drags, preset loads).
+* `hostToAudio` — produced by the VST3 wrapper from host-side parameter automation, MIDI events, and transport messages.
+* `workerToAudio` — produced by the worker thread for one-shot completions (e.g., 2D substrate allocation finished, preset migration finished).
+
+Each queue carries the same payload type:
 
 ```
 struct ControlEvent {
-  uint32_t timestamp;          // sample offset within host block
+  uint32_t timestamp;          // sample offset within host block (0 if not block-relative)
   uint16_t targetId;            // parameter / mod-slot / voice-event ID
   uint16_t flags;
   union {
@@ -116,7 +122,23 @@ struct ControlEvent {
 };
 ```
 
-The audio thread drains the queue at the start of each block. A capacity of 4096 events is more than sufficient for any plausible workload.
+The audio thread drains all three queues at the start of each block in fixed order (host → gui → worker, so host automation always wins on the same parameter, and worker confirmations are last). Each queue has a capacity of 4096 events.
+
+**Overflow policy**: the producer drops the new event and increments a per-queue `dropped` counter. The counters are exposed via the engine API:
+
+```c++
+struct ControlQueueStats {
+    uint64_t enqueued;
+    uint64_t consumed;
+    uint64_t dropped;
+};
+
+const ControlQueueStats& Engine::getQueueStats(QueueId q) const noexcept;
+```
+
+`QueueId ∈ {GuiToAudio, HostToAudio, WorkerToAudio}`. The counters are `std::atomic<uint64_t>` updated by the producer (for `enqueued`/`dropped`) and by the audio thread (for `consumed`); reads are eventually consistent. The CI test rig asserts `dropped == 0` after running each integration test, treating any non-zero value as a P0 bug. The Advanced parameter panel (07 §8a) displays the counters in development builds.
+
+We use SPSC rather than MPSC because SPSC is provably lock-free with simpler memory ordering, and because the producers are entirely separate threads with no shared back-pressure needs.
 
 ## 5. Sample rate, oversampling, and downsampling
 
@@ -128,7 +150,16 @@ The engine runs at the host's reported sample rate up to 192 kHz. There is no in
 
 For high-CPU configurations (e.g., 2D substrate with 64 agents per voice and 8-voice polyphony), the substrate may run at `fs / S` for `S ∈ {1, 2, 4}`. Agent deposits are accumulated at audio rate into a small ring buffer, then summed and integrated into the substrate at every `S` samples. Harvester reads upsample using cubic Hermite interpolation from the substrate's slower clock.
 
-`S = 2` is inaudible for most macro positions and halves the substrate cost. `S = 4` is audibly different — high-frequency substrate ringing is attenuated — and is offered only as an explicit "ECO" mode in the preferences. The default is `S = 1`.
+`S = 2` is inaudible for most macro positions and halves the substrate cost. `S = 4` is audibly different — high-frequency substrate ringing is attenuated — and is reserved for the explicit "ECO" preference mode.
+
+The default `S` factor depends jointly on the active substrate topology and the user's `engine.oversample_mode` preference (09 §3.12):
+
+| Topology | ECO | STD (default) | PREMIUM |
+|---|---|---|---|
+| 1D ring | `S = 2` | `S = 1` | `S = 1` |
+| 2D torus | `S = 4` | `S = 2` | `S = 1` |
+
+These defaults are the operating contract. v1.0 ships with `engine.oversample_mode = STD`, which means 1D presets run at full audio rate and 2D presets at half rate. Users can override via preferences. Document 02's CPU budget tables assume STD mode unless otherwise stated.
 
 ### 5.3 At sample-rate switches
 
@@ -139,6 +170,32 @@ When the host changes sample rate (rare; usually only at project change or devic
 3. Resumes envelopes in their current stage at the appropriate per-sample rate. **Note-on events are not replayed** — VST3 hosts do not re-issue MIDI on sample-rate change, and SFS does not synthesise note-on events. Voices that were holding gate when the rate changed remain in their current envelope stage with recalculated rates.
 
 In practice, hosts call `setActive(false)` before rate change and `setActive(true)` after — so this code path is rarely exercised mid-playback. It is documented to specify the contract, not because it is a hot path.
+
+## 5.4 The canonical per-sample engine step
+
+The engine is fundamentally **sample-driven**: agents and substrate are interleaved per audio sample, not per block. `Engine::process(numSamples, audioOut)` is a thin loop that calls `engineStep()` once per sample. The block boundary exists only for the host's benefit; nothing in the engine state behaves block-wise.
+
+The canonical per-sample ordering for one voice is:
+
+```
+engineStep(voice, n):
+    1. Voice envelope tick:        voice.envelopeTick(n)
+    2. Agent loop (per agent i):
+        a. u_at = substrate.read(p_i)                       // pre-update read
+        b. f_inst = bend(f_i, m_i, u_at)
+        c. y_i = voice.agents.waveform(i, f_inst, n)
+        d. e_i = voice.agents.envelope(i, n)
+        e. substrate.deposit(p_i, w_i · e_i · y_i)          // accumulates into u_inject
+        f. p_i = migrate(p_i, r_i, ε_i)
+    3. Substrate update:
+        a. consume u_inject; advance v[x], u[x] (per 02 §2.1)
+        b. zero u_inject
+    4. Harvester read: out[ch, n] = substrate.read(harvester[ch].position)
+```
+
+Steps 1–4 happen in this order, every sample, deterministically. Multiple voices' steps are computed independently then summed at step 4 across voices into the host output buffer.
+
+This ordering is the single source of truth. Documents 02 and 03 both reference back to this section for any timing or scheduling question. The substrate API in 02 §10 exposes `step()` (one-sample advance) for the live engine and `processNoDeposits(N)` (a loop of `step()` calls) only as an offline-test convenience for substrate-only test fixtures. There is no API that batches many samples of agent deposits before applying the substrate update — implementers must preserve the per-sample interleaving even when fusing the loop for SIMD efficiency.
 
 ## 6. Voice model
 
@@ -161,7 +218,7 @@ When a voice activates (note-on), it executes an **ignition** sequence:
 3. Agent oscillators have their phases initialised from the per-voice RNG; their positions are placed at deterministic equispaced points around the substrate, plus a small jitter from the RNG.
 4. Agent envelopes start.
 
-The ignition burst is what gives the voice "something to ring with" — without it, the substrate begins at exact zero and an agent that injects a sine wave would never excite the substrate's modes (the system is degenerate). The ignition is energetically tiny and inaudible directly; it is necessary for the substrate to come alive.
+The ignition burst is **not strictly mathematically required** — continuous nonzero agent deposits do excite the substrate (they are forces into `u_inject`). The role of ignition is **decorrelating startup**: agents at deterministic equispaced positions on a zeroed substrate would otherwise generate pathological standing-wave alignments that take many seconds to break — and would sound, at low EXCITATION, like a sterile additive bank. The ignition burst breaks the symmetry: it deposits a tiny per-voice-RNG-keyed pattern that gives the substrate's modes a non-zero initial state, so the first agent deposits land on a substrate that is already mid-ring rather than at perfect rest. The burst is energetically tiny and inaudible directly; its purpose is to make the voice's first 100 ms sound alive rather than awakening from a perfect null.
 
 ### 6.3 Voice deactivation and tail length
 
@@ -218,7 +275,7 @@ Per host process call, the shell:
 ```c++
 struct Voice {
   alignas(64) Substrate1D substrate1d;     // ~16 KB for N=1024 cells
-  alignas(64) Substrate2D substrate2d;     // ~16 MB for 1024×1024, lazy-allocated
+  alignas(64) Substrate2D* substrate2d;    // pointer; allocated on preset load (worker thread)
   alignas(64) AgentPool   agents;          // ~6 KB for 64 agents
   alignas(64) HarvesterBank harvesters;    // ~256 B
   EnvelopeState envelopes;                  // ~256 B
@@ -227,7 +284,18 @@ struct Voice {
 };
 ```
 
-64-byte alignment ensures cache-line-friendly access and supports AVX-512 in future versions. The 2D substrate is allocated lazily — voices that never see a 2D-mode preset do not pay the memory cost.
+64-byte alignment ensures cache-line-friendly access and supports AVX-512 in future versions.
+
+**The 2D substrate is allocated lazily but never on the audio thread.** Allocation happens on the worker thread when:
+
+* A preset that uses 2D topology is loaded.
+* The user changes `TOPOLOGY` to a 2D variant in the GUI.
+
+In both cases, the worker thread allocates the 2D buffers, populates them with zero state, and signals the audio thread (via `workerToAudio`) that 2D is ready. Until that signal arrives, the engine continues running the active voice in 1D mode if it was already playing, or defers the next voice ignition by a few milliseconds. The audio thread never blocks on allocation.
+
+If a topology switch is requested for a 2D variant whose substrate has not yet been allocated, the request enters a pending state until the worker completes allocation. The GUI shows a brief "loading topology…" indicator (typically < 50 ms on modern hardware).
+
+Voices that never see a 2D-mode preset do not pay the 2D memory cost.
 
 ### 8.2 Engine memory
 
@@ -258,7 +326,8 @@ To meet this:
 
 * All RNG is counter-based (Philox-4x32-10), keyed by (preset_seed, voice_index, agent_index, stream_id). No reliance on `std::default_random_engine` or any platform RNG.
 * No `float` denormal flushing differences are tolerated. Set FTZ/DAZ on every audio thread entry.
-* No use of `std::sin`/`std::cos` directly in the agent loop — all transcendentals go through a polynomial approximation (or LUT) shipped with the engine.
+* All transcendental and elementary math on the audio path goes through the **deterministic math primitives** defined in 06 §"Deterministic math primitives" — `dm_sin`, `dm_cos`, `dm_tanh`, `dm_exp`, `dm_log`, `dm_sqrt`, `dm_pow`, `dm_floor`, `dm_fmod`. These are bit-exact polynomial approximations or LUTs shipped with the engine. Library calls (`std::sin`, `std::cos`, `std::tanh`, `std::exp`, `std::log`, `sinf`, `cosf`, `logf`, `powf`, `fmodf`, `floorf`) are **forbidden on the audio path** (anywhere reached from `engineStep()`).
+* Library math is allowed in init-time and block-rate non-audio code paths (preset migration, parameter smoothing constant derivation, GUI-side computations). The seam is whether the call participates in a per-sample render; if so, it must use a deterministic primitive.
 * No platform-specific SIMD math intrinsics whose precision differs across vendors. Use the [SIMDe](https://github.com/simd-everywhere/simde) layer or hand-write polynomial-approximation kernels.
 
 This is non-negotiable. Bit-exact reproducibility is what makes presets shareable, automation testable, and preset hashes meaningful.

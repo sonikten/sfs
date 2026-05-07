@@ -19,85 +19,156 @@ SFS uses [Philox-4×32-10](https://www.deshawresearch.com/resources_random123.ht
 
 ### 1.2 Stream structure
 
-Every SFS RNG stream is keyed:
+The Random123 Philox-4×32-10 primitive takes a **64-bit key** (two 32-bit words) and a **128-bit counter** (four 32-bit words), and returns 128 bits of random output (four 32-bit words). SFS uses this API directly; an earlier draft of this document mistakenly described a 128-bit key.
+
+SFS encodes its stream identity in the counter's high words and its sample/draw position in the counter's low words:
 
 ```
-key128 = (preset_seed_64, voice_index_16, agent_index_16, stream_id_16, reserved_16)
+key64       = preset_seed_64                                    // identifies the preset
+counter[3]  = voice_index_16  | (agent_index_16 << 16)          // who is drawing
+counter[2]  = stream_id_16    | (reserved_16 << 16)             // why
+counter[1]  = sample_index_high                                 // when (high 32 bits)
+counter[0]  = sample_index_low                                  // when (low 32 bits)
 ```
+
+For initialisation streams (`stream_id ∈ {0…7}` below), `sample_index = 0` and the four output words give 128 bits of fixed entropy keyed by the (preset, voice, agent, stream) tuple. For per-sample streams (e.g., migration noise), `sample_index` increments by 1 per audio sample. For Gaussian draws that need two uniforms, the implementation calls Philox once per Gaussian — not once per uniform — and treats the four output words as two independent Gaussian seeds (Box–Muller without cache; see §1.4).
 
 Stream IDs:
 
-| Stream ID | Purpose |
-|---|---|
-| `0` | Per-voice ignition burst |
-| `1` | Per-voice agent position initialisation |
-| `2` | Per-voice agent shape selection |
-| `3` | Per-voice agent harmonic ratio selection |
-| `4` | Per-agent migration noise |
-| `5` | Per-agent sample-and-hold noise (for `noise` waveform) |
-| `6` | Per-voice random-walk LFO state |
-| `7` | Per-voice envelope time-randomisation (small jitter on attack/release) |
+| Stream ID | Purpose | Sample-indexed? |
+|---|---|---|
+| `0` | Per-voice ignition burst | no (init) |
+| `1` | Per-voice agent position initialisation | no (init) |
+| `2` | Per-voice agent shape selection | no (init) |
+| `3` | Per-voice agent harmonic ratio selection | no (init) |
+| `4` | Per-agent migration noise | yes |
+| `5` | Per-agent sample-and-hold noise (for `noise` waveform) | yes (one draw per phase wrap) |
+| `6` | Per-voice random-walk LFO state | yes |
+| `7` | Per-voice envelope time-randomisation | no (init) |
+| `8` | Per-voice modulation `RANDOM` source (one value per note-on) | no (init) |
+| `9` | Per-voice MPE_RANDOM expression source (one value per note-on) | no (init) |
+| `10` | Per-voice harvester orbit (when shape = random_walk) | yes |
+| `11` | Plug-in dice button — preset randomisation | no (init, draws from a curated distribution) |
+| `12–31` | Reserved | — |
 
-Counter usage:
-
-* For per-sample stream draws (e.g., migration noise): counter increments by `1` per sample.
-* For initialisation streams: counter is `0` and key fully determines the value (single read).
+Stream IDs 8–11 cover features that earlier drafts of this document omitted; the wider table is the canonical inventory.
 
 ### 1.3 Reference implementation
 
-Philox-4×32-10 takes a 128-bit key and 128-bit counter and returns a 128-bit result (interpreted as four 32-bit unsigned ints). The reference C implementation is ~50 lines and is deterministic across all platforms.
+Philox-4×32-10 takes a **64-bit key** (two 32-bit words) and a **128-bit counter** (four 32-bit words) and returns a 128-bit result (interpreted as four 32-bit unsigned ints). This matches the Random123 library's API exactly; do not rename the parameters or repack them.
+
+The reference C implementation is ~50 lines from [DE Shaw Research Random123](https://github.com/DEShawResearch/random123). SFS wraps it as:
 
 ```c++
-struct Philox4x32 {
+struct Philox4x32Stream {
+    // Key: 64 bits derived from preset seed.
     uint32_t key[2];
+
+    // Counter: 128 bits encoding (sample_index, stream_id, voice, agent).
+    // Layout matches §1.2 packing.
     uint32_t counter[4];
 
-    void seed(uint64_t presetSeed, uint16_t voice, uint16_t agent, uint16_t stream) {
+    // Last draw: cached output of the last philox call (4 × 32 bits).
+    uint32_t lastOut[4];
+    uint8_t  lastOutCursor;       // 0..3, which word of lastOut is the next read
+
+    void seed(uint64_t presetSeed,
+              uint16_t voice, uint16_t agent, uint16_t stream) {
         key[0] = static_cast<uint32_t>(presetSeed);
         key[1] = static_cast<uint32_t>(presetSeed >> 32);
-        counter[0] = (static_cast<uint32_t>(voice) << 16) | agent;
-        counter[1] = stream;
-        counter[2] = 0;
-        counter[3] = 0;
+        counter[3] = (static_cast<uint32_t>(voice) << 16) | agent;
+        counter[2] = (static_cast<uint32_t>(stream) << 0)  | (0u << 16);  // reserved high
+        counter[1] = 0;            // sample_index high
+        counter[0] = 0;            // sample_index low
+        lastOutCursor = 4;         // forces philox call on first draw
+    }
+
+    void setSampleIndex(uint64_t sampleIndex) {
+        counter[0] = static_cast<uint32_t>(sampleIndex);
+        counter[1] = static_cast<uint32_t>(sampleIndex >> 32);
+        lastOutCursor = 4;         // invalidate cache; next draw re-philoxes
     }
 
     uint32_t next32() {
-        uint32_t out[4];
-        philox4x32(out, counter, key);
-        ++counter[2];
-        return out[0];
+        if (lastOutCursor >= 4) {
+            philox4x32_R10(lastOut, counter, key);
+            // For init streams sample_index is fixed; for per-sample streams the
+            // caller advances via setSampleIndex() before each draw, so we only
+            // increment counter[0] for back-to-back draws within the same sample.
+            // Increment of counter[0] handles overflow into counter[1] correctly.
+            if (++counter[0] == 0u) { ++counter[1]; }
+            lastOutCursor = 0;
+        }
+        return lastOut[lastOutCursor++];
     }
 
     float nextFloat01() {
         return (next32() >> 8) * (1.0f / 16777216.0f);   // 24-bit precision
     }
-
-    float nextGaussian() {
-        // Box–Muller; cache second draw
-        if (haveCached) { haveCached = false; return cached; }
-        float u1 = std::max(1e-7f, nextFloat01());
-        float u2 = nextFloat01();
-        float r  = sqrtf(-2.0f * logf(u1));
-        cached      = r * sinf(2.0f * 3.14159265f * u2);
-        haveCached  = true;
-        return r * cosf(2.0f * 3.14159265f * u2);
-    }
-
-    bool haveCached = false;
-    float cached = 0.0f;
 };
 ```
 
-The `philox4x32(out, counter, key)` function is the reference 10-round implementation from the [DE Shaw Research Random123 library](https://github.com/DEShawResearch/random123) — bit-exact across platforms.
+`philox4x32_R10(out, counter, key)` is the reference 10-round implementation from the Random123 library — bit-exact across platforms. The wrapper exposes 4 random 32-bit words per Philox call; consumers call `next32()` to draw uniformly.
 
-### 1.4 Vectorisation
+### 1.4 Gaussian draws (deterministic, no Box–Muller cache)
 
-For the per-sample agent migration noise (the dominant RNG cost), a vectorised Philox kernel produces 4 random floats at a time, refilling a small per-voice ring buffer in 64-element batches outside the inner agent loop. This keeps RNG cost off the hot path.
+Gaussian noise is essential for migration. SFS uses Box–Muller **without** the second-value cache, because the cache makes draw order matter for determinism under interleaved consumption (one agent's two-draw Gaussian could split across another agent's draw). Each Gaussian costs one Philox call and consumes two of its four output words, ignoring the other two:
 
-### 1.5 RNG cost summary
+```c++
+float nextGaussian(Philox4x32Stream& s) {
+    // One philox draw gives 4 × 32-bit; we use the first two for one Gaussian.
+    if (s.lastOutCursor >= 4) {
+        philox4x32_R10(s.lastOut, s.counter, s.key);
+        if (++s.counter[0] == 0u) { ++s.counter[1]; }
+        s.lastOutCursor = 4;        // mark consumed; next call re-philoxes
+    }
+    uint32_t u1_bits = s.lastOut[0];
+    uint32_t u2_bits = s.lastOut[1];
+    s.lastOutCursor = 4;            // discard remaining 2 words
+    float u1 = (u1_bits >> 8) * (1.0f / 16777216.0f);
+    float u2 = (u2_bits >> 8) * (1.0f / 16777216.0f);
+    if (u1 < 1e-7f) u1 = 1e-7f;
+    float r  = dm_sqrt(-2.0f * dm_log(u1));
+    return r * dm_cos(u2);          // dm_cos: deterministic primitive
+}
+```
 
-* Initialisation (once per voice): ~64 calls = ~1 µs
-* Per-sample agent migration: ~64 Gaussians per voice = ~1 µs vectorised, ~3 µs scalar
+This costs more Philox calls than a cached Box–Muller (4× more, since we drop two of every four output words), but it makes Gaussians purely a function of the (voice, agent, stream, sample_index) tuple — no inter-call ordering matters.
+
+`dm_sqrt`, `dm_log`, `dm_cos` are deterministic primitives (see §1.6).
+
+### 1.5 Vectorised Gaussian batches
+
+The dominant per-sample RNG cost is migration-noise Gaussians. A vectorised Philox kernel computes 4 streams at once (one per agent in a SIMD lane). Each lane is independently keyed by `(voice, agent_lane_index, stream=4, sample_index)`, so the SIMD output is bit-identical to four independent `nextGaussian` calls run sequentially. This is what makes the determinism contract survive vectorisation.
+
+A small per-voice ring buffer can prefill 64 Gaussians at a time outside the hot per-sample agent loop, but the prefill MUST be keyed by sample-index ranges so the consumer reads exactly the value that the determinism contract specifies for each (agent, sample_index) pair. The prefill is a CPU optimisation; it cannot reorder the deterministic stream.
+
+### 1.6 Deterministic math primitives
+
+The audio path uses only the following primitives, all polynomial or LUT approximations whose output is bit-identical across all supported platforms. The table maps each primitive to its accuracy bound and the library equivalent it replaces:
+
+| Primitive | Replaces | Accuracy | Use site |
+|---|---|---|---|
+| `dm_sin(x)` | `sinf`, `std::sin` | < 1e-6 | agent waveforms; ambisonic encoder |
+| `dm_cos(x)` | `cosf`, `std::cos` | < 1e-6 | Gaussian, harvester orbits |
+| `dm_tanh(x)` | `tanhf`, `std::tanh` | < 1e-3 | output saturator |
+| `dm_exp(x)` | `expf`, `std::exp` | < 1e-5 | smoothing coefficients (init only), envelope curves |
+| `dm_log(x)` | `logf`, `std::log` | < 1e-5 | Gaussian (Box–Muller) |
+| `dm_sqrt(x)` | `sqrtf`, `std::sqrt` | exact (HW) | Gaussian, normalisation; uses platform-IEEE-conformant `sqrtf` which IS deterministic in IEEE 754 round-to-nearest mode |
+| `dm_pow(x, y)` | `powf`, `std::pow` | < 1e-4 | FM ratio (init only) |
+| `dm_pow2(x)` | `exp2f`, `std::exp2` | < 1e-4 | MPE pitch-bend ratio (block-rate); 5th-degree minimax + `ldexp` |
+| `dm_floor(x)` | `floorf`, `std::floor` | exact | wrap, fract |
+| `dm_fract(x)` | `x - floor(x)` | exact | phase wrap |
+| `dm_fmod(x, y)` | `fmodf`, `std::fmod` | derived from `dm_floor` | not used in v1.0 audio path |
+
+`sqrtf` is on most platforms a single hardware instruction with IEEE 754 correct rounding; we treat it as deterministic when the engine sets round-to-nearest mode at thread entry. `dm_sqrt` may simply call `sqrtf`. All other primitives are pure polynomial/LUT and ship with the engine.
+
+The set is closed: any audio-path computation that needs a transcendental MUST use one of the above. Library calls (`std::sin`, `tanhf`, etc.) are forbidden anywhere reachable from `engineStep()` (01 §5.4). They remain allowed in init/non-audio code paths.
+
+### 1.7 RNG cost summary
+
+* Initialisation (once per voice): ~64 calls = ~1 µs.
+* Per-sample agent migration: ~64 Gaussians per voice = ~1 µs vectorised (per §1.5), ~3 µs scalar.
 
 Negligible compared to substrate updates.
 
@@ -105,9 +176,30 @@ Negligible compared to substrate updates.
 
 The contract: given identical preset, identical MIDI input, identical sample rate, identical block size, and identical channel layout, the SFS engine produces bit-identical audio output across platforms.
 
-To enforce this, the test rig (08) renders a fixed input on every supported platform and `diff`s the resulting WAV files. Any non-zero diff is a v1.0 release blocker.
+### 2.1 The canonical render
 
-Sources of non-determinism that are explicitly excluded:
+The test rig (08) renders presets under one canonical configuration:
+
+* **Sample rate**: 48 000 Hz.
+* **Block size**: 256 samples.
+* **Channel layout**: stereo (2 channels), unless the preset explicitly requires another layout (e.g., the 5.1 factory preset renders in 5.1).
+* **Sample format**: 32-bit float PCM.
+* **MIDI input**: a fixed sequence per preset, stored alongside the preset as `<preset>.midi`. The default sequence is "C4 at velocity 100, gate-on at sample 0, gate-off at sample 24000 (0.5 s), render until sample 1440000 (30 s)."
+* **Tail handling**: render continues until either 30 s elapsed or RMS over the last 100 ms drops below −96 dBFS.
+* **Dither**: none. Output is stored as raw 32-bit float; conversion to 16/24-bit is the host's responsibility.
+* **Engine settings**: `engine.oversample_mode = STD`, `engine.max_voices = 8`, `engine.theme` and other GUI-only preferences ignored.
+
+### 2.2 The hash and diff target
+
+The audio hash and bit-exact diff operate on **raw PCM frames** — not the WAV file as written to disk. The WAV file's RIFF header, BWF metadata, INFO chunks, and any ID3 tags are NOT part of the determinism surface. Specifically:
+
+* Compute a SHA-256 hash over the concatenated channel-interleaved 32-bit float samples produced by the engine for the canonical render.
+* Store this hash as the preset's `_audio_hash` (§3.3).
+* CI re-renders, recomputes the hash, and compares.
+
+This hash-of-PCM-frames approach makes the determinism contract independent of WAV writer implementation, host metadata insertion, or BWF timestamp differences across platforms.
+
+### 2.3 Sources of non-determinism explicitly excluded
 
 * Wall-clock time (no `std::chrono::system_clock` calls anywhere in the audio path).
 * Random seeds from system entropy (no `std::random_device`).
@@ -124,7 +216,15 @@ Presets are stored as JSON with a small binary blob for the modulation matrix. J
 
 ### 3.1 File extension and identification
 
-`.sfs` is the file extension. The plug-in registers `application/x-sfs` as a MIME type for drag-and-drop import. The first 8 bytes of every preset must be the ASCII magic `"SFS-1.00"` to allow rapid identification (the magic appears as the first key in the JSON: `"_magic": "SFS-1.00"`).
+`.sfs` is the file extension. The plug-in registers `application/x-sfs` as a MIME type for drag-and-drop import.
+
+The file is **pure JSON** (no binary header, no length prefix). Identification uses the first JSON key:
+
+* The first key in the top-level object MUST be `"_magic"` and its value MUST be `"SFS-1.00"`.
+* By convention the JSON object opens at byte 0 with `{"_magic": "SFS-1.00",` so `grep -l '"_magic":"SFS' *.sfs` (with whitespace tolerance) is a quick file-detection check.
+* The plug-in's preset loader parses the file as JSON and validates the `_magic` field; the loader does not perform a byte-offset comparison.
+
+Earlier drafts of this document described a fixed 8-byte ASCII prefix; that was inconsistent with the JSON-first design. Pure JSON wins because it is diff-friendly under version control, easy to inspect, and survives copy-paste in forums and Git.
 
 ### 3.2 Top-level schema
 
@@ -221,6 +321,19 @@ The hash is informational only — it is not required for loading. A preset with
 * `description`: user-editable, multi-line text up to 512 characters.
 
 Both timestamps use UTC (`Z` suffix) regardless of the user's local timezone, to keep preset packs portable.
+
+### 3.3b Complete persisted-field reference
+
+The example in §3.2 is illustrative; for v1.0 the **canonical** persisted-field set is exactly the union of:
+
+* All host-exposed parameters in 09 §3.1–3.8 with `Host-visible: yes` or `no` (every row of those tables persists in the preset, not only host-visible ones; `no` only means the parameter doesn't appear in the host's automation list).
+* The reserved fields catalogued in 09 §"Reserved persisted fields" (which currently include `shared_substrate`, `substrate.laplacian_order`, and `substrate.nonlinear_beta`).
+* The metadata fields in §3.3a.
+* The modulation matrix and LFO/envelope state per §3.2.
+
+A preset MUST include every host-exposed parameter from 09 §3.1–3.8 (so that loading is deterministic), every reserved field from 09 §"Reserved persisted fields" (which fall back to documented defaults when omitted in older presets), and the metadata fields. The example JSON in §3.2 shows the structure but elides routine fields; document 09 is authoritative for the complete field list. A preset that omits a host-exposed field loads with that field set to its 09-documented default.
+
+Engine preferences (`engine.oversample_mode`, `engine.max_voices`, `engine.gui_refresh_hz`, `engine.theme`) are NOT preset-persisted — they live in user preferences (09 §5).
 
 ### 3.4 Versioning and migration
 

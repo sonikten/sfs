@@ -4,6 +4,19 @@ A novel synthesis paradigm for ambient and experimental soundscapes
 
 ---
 
+> **Status note (2026-05-01).** This is the **conceptual research document** that established the synthesis paradigm, its novelty argument against prior art, and the four sonic-character corners the engine targets. It is the canonical source for *why* SFS exists and *how it differs from* its closest neighbours.
+>
+> Implementation-facing readers should consult the v1.0 specification in [`sfs-spec/`](sfs-spec/00_overview.md) for the engine and plug-in build. Where this document and the v1.0 spec disagree on implementation choices — for example, this document discusses shared-substrate as a possibility (§4.1) and lists Möbius/Klein topologies (§4.2.4) and "later phases including ambisonic output" (§7) — **the v1.0 spec is canonical**. Specifically:
+>
+> * v1.0 uses **per-voice** substrate instancing; the shared-substrate flag is reserved but not exposed (spec 01 §2).
+> * v1.0 ships the **ring (1D)** and **torus (2D)** topologies only; Möbius and Klein are deferred (spec 02 §4).
+> * v1.0 ships **horizontal-plane first-order ambisonic** (Z = 0 because the substrate is at most 2D); higher-order is deferred (spec 04 §3.6).
+> * v1.0's CPU budget for the default polyphony is more conservative than the rough estimates in §7 of this document; see spec 03 §9 and 08 §2.5.
+>
+> The novelty analysis in §6 of this document, the engine concept, and the macro design philosophy are unchanged.
+
+---
+
 ## 1. Executive summary
 
 After surveying the landscape of digital audio synthesis — classical (subtractive, additive, FM, AM, wavetable, phase distortion, vector), physical (waveguide, modal, scanned, FDTD membrane), spectral (phase vocoder, cross-synthesis, additive resynthesis), granular (granular, FOF/VOSIM, waveset, corpus-based concatenative), and the broader family of "non-standard" methods (Xenakis GENDY, cellular automata, reaction-diffusion, coupled-oscillator/Kuramoto networks, swarm/boids, feedback-delay networks, L-systems, scanned chaotic attractors) — there is a clearly underexplored axis in the design space: **a continuous spatial substrate that simultaneously hosts both the audio output and a population of audio-rate oscillator agents that read from and write to that substrate, coupled only indirectly through the field they jointly disturb.**

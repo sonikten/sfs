@@ -38,23 +38,24 @@ v[x, n+1] = (1 - γ) · v[x, n]
 // 3. Update displacement
 u[x, n+1] = u[x, n] + v[x, n+1]
 
-// 4. DC block (every K samples, see §6)
-if (n mod K == 0):
-    apply_dc_block(u)
+// 4. DC block (per sample; cutoff fixed at 5 Hz; see §6)
+apply_dc_block(u)
 ```
 
-The order of operations matters: deposits go into the velocity update step (they are forces, not displacements), and the displacement integrates the new velocity. This is a leapfrog-style symplectic integrator and is what gives the substrate its stable wave behaviour.
+The order of operations matters: deposits go into the velocity update step (they are forces, not displacements), and the displacement integrates the new velocity. This is a leapfrog-style symplectic integrator and is what gives the substrate its stable wave behaviour. The whole step is one tick of the canonical per-sample engine step (01 §5.4).
 
 ### 2.1 Symbol definitions
 
 | Symbol | Meaning | Parameter ID | v1.0 Range |
 |---|---|---|---|
-| `c²` | squared wave-speed | `substrate.tension` | 0.0 to 0.49 (user-facing); internally clamped to 0.475 jointly with κ |
-| `κ` | velocity-diffusion coefficient | `substrate.viscosity` | 0.0 to 0.45 |
-| `γ` | per-step loss coefficient | `substrate.damping` | 0.0 to 0.05 |
-| `N` | number of cells | `substrate.size` | 256 to 4096, default 1024 |
+| `c²` | squared wave-speed | internal: `substrate.c2` (fanout target of `macro.tension`) | 0.0 to 0.49 (user-facing); internally clamped to 0.475 jointly with κ in 1D and 0.225 in 2D |
+| `κ` | velocity-diffusion coefficient | internal: `substrate.viscosity` (fanout target of `macro.damping`) | 0.0 to 0.45 (1D); 0.0 to 0.20 (2D, joint clamp) |
+| `γ` | per-step loss coefficient | internal: `substrate.gamma` (fanout target of `macro.damping`) | 0.0 to 0.05 |
+| `N` | number of cells (1D) | internal: `substrate.size` | 256 to 4096, default 1024 |
 | `u_inject[x]` | total agent injection at cell x this sample | (computed) | bounded |
-| `K` | DC-block interval | (constant) | 256 |
+| `α_dc` | DC-blocker coefficient | (derived from `fs`) | typically 0.999–0.9999 |
+
+The internal field names (`substrate.c2`, `substrate.viscosity`, `substrate.gamma`, `substrate.size`) are catalogued in document 09 §"Internal engine fields"; they are private engine state and are not directly user-controllable. The user reaches them through the macros `macro.tension`, `macro.damping`, etc. (09 §3.1) via the fan-out described in 05.
 
 The user-facing `c²` range is `[0.0, 0.49]`. When `c² + κ` would exceed `0.475`, both are softly compressed proportionally to remain within the safe bound; the user perceives a smooth saturation at the high end of the TENSION knob rather than a hard clip. Document 09's symbol table reports the user-facing range; the 0.475 internal clamp is a v1.0 implementation detail.
 
@@ -145,18 +146,21 @@ Bilinear (4-tap) for default; bicubic Hermite (16-tap) for premium. Same selecti
 
 ## 6. DC blocking and stability hygiene
 
-A first-order DC blocker is applied to each cell of `u` every `K = 256` samples. The block runs as one sweep through the substrate using a single-pole high-pass at 5 Hz:
+A first-order DC blocker is applied to each cell of `u` **every audio sample** at the substrate update step. The block uses a single-pole high-pass with a fixed cutoff of 5 Hz, which is below all musical content of interest:
 
 ```
+α = 1 - 2π · f_dc / fs                     // f_dc = 5 Hz; computed at setActive()
 for each cell x:
-    u_blocked[x] = u[x] - u_prev[x] + 0.99 · u_blocked_prev[x]
+    u_blocked[x] = u[x] - u_prev[x] + α · u_blocked_prev[x]
     u_prev[x]     = u[x]
     u[x]          = u_blocked[x]
 ```
 
-This is overkill for stability (the loss term `γ` already prevents long-term DC accumulation) but eliminates audible bias drift over multi-minute drones. The 5 Hz cutoff is below all musical content of interest.
+`α` is derived from the host sample rate at `setActive(true)` and held constant until `setActive(false)`. Typical values: at 48 kHz, `α = 1 - 2π · 5 / 48000 ≈ 0.999346`; at 96 kHz, `α ≈ 0.999673`. The cutoff is therefore consistent across sample rates by construction.
 
-Cost: `2N` adds + `2N` muls every 256 samples = effective `0.008N` ops/sample. Negligible.
+This is overkill for stability — the loss term `γ` already prevents long-term DC accumulation — but eliminates audible bias drift over multi-minute drones, particularly under asymmetric agent deposit patterns.
+
+Cost: `3N` operations per sample (one subtract, one multiply-add, one store of `u_prev`). For `N = 1024`, that's ~3000 ops/sample, which adds about 0.5 µs to the substrate update on SSE2. The previous "every 256 samples" sweep is replaced by this per-sample variant because the latter has a sample-rate-correct cutoff and no aliasing artifacts at the K-sample boundary.
 
 A separate **infinity guard** runs on every voice every block: if `‖u‖∞ > 100.0`, the voice is reset to silent and the host is sent a `kVst3WarnInternalNumeric` warning. This catches any stability-bound violation that survives the macro clamp; in normal operation it never fires.
 
@@ -218,10 +222,10 @@ Numbers are per-call; at 48 kHz a single 1D-1024 voice on SSE2 consumes ~24% of 
 
 ### 8.1 `c²` (TENSION) — squared wave-speed
 
-* Range: `[0.0, 0.49]` (clamped)
+* Range: `[0.0, 0.49]` (clamped jointly with `κ` per §2.2)
 * Default: `0.30`
 * Curve from macro: `c² = 0.49 · TENSION^2` (quadratic, gives finer control at low values)
-* Sonic effect: at `0.0`, no propagation — agents only deposit locally and the substrate behaves as a parallel summing bus. At `0.49`, signal traverses the full substrate in `~N/c` samples; at `N=1024, c²=0.49`, that's a wave-traversal time of ~30 samples (~0.6 ms at 48 kHz), giving extremely lively standing-wave behaviour.
+* Sonic effect: at `0.0`, no propagation — agents only deposit locally and the substrate behaves as a parallel summing bus. At maximum `c² = 0.49`, the wave speed is `c = √0.49 ≈ 0.7` cells per sample. Full-substrate traversal of `N = 1024` cells therefore takes `N/c ≈ 1463 samples`, which at 48 kHz is roughly **30 ms**. (An earlier draft of this document mistakenly stated "30 samples" — a units error.) Standing-wave modes arrange themselves around this traversal time: the lowest mode rings at roughly `c · fs / (2N) ≈ 16 Hz` for the maximum-tension case, and the substrate's audible timbral content lives in standing waves whose mode numbers `m` produce frequencies `m · 16 Hz` up through tens of kHz.
 
 ### 8.2 `κ` (VISCOSITY, internal) — velocity diffusion
 
@@ -274,9 +278,17 @@ public:
     Substrate1D(size_t cellCount, float sampleRate);
     void reset();                                  // zero u, v
     void setCoefficients(float c2, float kappa, float gamma);
-    void deposit(float position, float amount);    // called by agents; uses linear or lanczos4 kernel
-    void process(size_t numSamples);               // advances substrate; expects prior deposits
+
+    // The canonical per-sample API (call exactly once per audio sample)
+    void deposit(float position, float amount);    // called by agents; accumulates into uInject
+    void step();                                   // consumes uInject; advances v, u; zeros uInject
     float read(float position) const;              // harvester read (linear interp)
+
+    // Convenience wrapper for use cases that batch-process N samples
+    // with no agent interaction (e.g., offline rendering of substrate-only test fixtures).
+    // Equivalent to calling step() N times. Should NOT be used in the live engine; use
+    // engineStep() in 01 §5.4 instead.
+    void processNoDeposits(size_t numSamples);
 
     // Visualisation snapshot (called by GUI thread)
     void snapshot(float* dst, size_t dstSize) const;
@@ -284,17 +296,16 @@ public:
 private:
     alignas(64) std::vector<float> u, v;
     std::vector<float> uInject;                    // per-sample deposit accumulator
-    DcBlocker dcBlocker;
-    float c2, kappa, gamma;
+    DcBlocker dcBlocker;                            // per-cell state; runs every step()
+    float c2, kappa, gamma, alphaDc;
     size_t cellCount;
     size_t cellMask;                               // cellCount - 1 for power-of-two
-    int dcBlockCounter;
 };
 ```
 
 The same structure applies to `Substrate2D` with `(width, height)` instead of `cellCount` and 2D arrays.
 
-`process()` runs the SIMD inner loop. `deposit()` accumulates into `uInject`; `process()` consumes and zeros `uInject` after applying. `read()` returns a linear-interpolated `u` value.
+The substrate has no `process(N)` method that internally batches — the canonical contract is exactly one `step()` per audio sample, interleaved with agent deposits per the schedule in 01 §5.4. `deposit()` may be called multiple times per sample (once per agent) before `step()` consumes the accumulated `uInject`. After `step()`, `uInject` is zeroed and ready for the next sample's agent loop. `read()` may be called multiple times per sample (once per harvester, once per agent's bend read) and returns the current substrate value.
 
 ## 11. Test vectors
 
