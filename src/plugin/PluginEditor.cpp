@@ -27,6 +27,7 @@ void SubstrateView::timerCallback()
         }
         return;
     }
+    is2D_ = (vm->topology() == sfs::engine::Topology::Torus2D);
     const bool gotData = vm->snapshotPrimaryVoiceSubstrate(snapshot_.data(), kCells);
     if (!gotData)
     {
@@ -84,12 +85,37 @@ void SubstrateView::paint(juce::Graphics& g)
     // Background.
     g.fillAll(juce::Colour::fromRGB(15, 15, 22));
 
-    // Centre line.
+    if (is2D_)
+    {
+        paint2D(g, bounds);
+    }
+    else
+    {
+        paint1D(g, bounds);
+    }
+
+    // Label with auto-scale readout so the user knows the substrate's
+    // current peak amplitude (raw, pre-DC-block / pre-clip).
+    g.setColour(juce::Colour::fromRGB(80, 90, 110));
+    g.setFont(11.0f);
+    juce::String label;
+    if (!hasSignal_)
+    {
+        label = "SUBSTRATE (idle)";
+    }
+    else
+    {
+        label = juce::String(is2D_ ? "SUBSTRATE 2D  ±" : "SUBSTRATE  ±") + juce::String(displayScale_, 2);
+    }
+    g.drawText(label, bounds.reduced(8.0f), juce::Justification::topLeft);
+}
+
+void SubstrateView::paint1D(juce::Graphics& g, juce::Rectangle<float> bounds)
+{
     g.setColour(juce::Colour::fromRGB(40, 42, 55));
     const float midY = bounds.getCentreY();
     g.drawHorizontalLine(static_cast<int>(midY), bounds.getX(), bounds.getRight());
 
-    // Substrate trace.
     const float w = bounds.getWidth();
     const float h = bounds.getHeight();
     const float halfH = h * 0.45f;
@@ -123,21 +149,64 @@ void SubstrateView::paint(juce::Graphics& g)
         const float x = bounds.getX() + dx * static_cast<float>(pos);
         g.fillRect(x - 1.0f, bounds.getBottom() - markerH, 2.0f, markerH);
     }
+}
 
-    // Label with auto-scale readout so the user knows the substrate's
-    // current peak amplitude (raw, pre-DC-block / pre-clip).
-    g.setColour(juce::Colour::fromRGB(80, 90, 110));
-    g.setFont(11.0f);
-    juce::String label;
-    if (!hasSignal_)
+void SubstrateView::paint2D(juce::Graphics& g, juce::Rectangle<float> bounds)
+{
+    // Render the 32×32 grid as a heatmap. Substrate2D::snapshot stores
+    // u in row-major order (x fastest), so cell (x, y) is at index y*Nx + x.
+    constexpr int kNx = 32;
+    constexpr int kNy = 32;
+    static_assert(kNx * kNy == kCells, "snapshot size mismatches 2D grid");
+
+    const float invScale = (displayScale_ > 1e-6f) ? (1.0f / displayScale_) : 1.0f;
+
+    // Centre the grid in the viewport, square aspect (smaller dim wins).
+    const float available = std::min(bounds.getWidth(), bounds.getHeight() - 24.0f);
+    const float gridSize = std::max(64.0f, available);
+    const float cellW = gridSize / static_cast<float>(kNx);
+    const float cellH = gridSize / static_cast<float>(kNy);
+    const float originX = bounds.getX() + (bounds.getWidth() - gridSize) * 0.5f;
+    const float originY = bounds.getY() + (bounds.getHeight() - gridSize) * 0.5f;
+
+    for (int y = 0; y < kNy; ++y)
     {
-        label = "SUBSTRATE (idle)";
+        for (int x = 0; x < kNx; ++x)
+        {
+            const auto idx = static_cast<std::size_t>(y * kNx + x);
+            const float normalised = juce::jlimit(-1.0f, 1.0f, snapshot_[idx] * invScale);
+            // Map [-1, 1] to a teal/orange divergent palette:
+            //   negative → teal (low channel = blue-green)
+            //   positive → orange (high channel = warm)
+            //   zero     → black
+            juce::Colour c;
+            if (normalised >= 0.0f)
+            {
+                const float k = normalised;
+                c = juce::Colour::fromFloatRGBA(0.86f * k, 0.55f * k, 0.30f * k, 1.0f);
+            }
+            else
+            {
+                const float k = -normalised;
+                c = juce::Colour::fromFloatRGBA(0.30f * k, 0.78f * k, 0.78f * k, 1.0f);
+            }
+            g.setColour(c);
+            g.fillRect(originX + cellW * static_cast<float>(x),
+                       originY + cellH * static_cast<float>(y),
+                       cellW + 0.5f,
+                       cellH + 0.5f);
+        }
     }
-    else
+
+    // Harvester L/R position markers (stereo positions 0 and N/2 along
+    // the X axis at midY — sfs-spec/04 §3.6 stereo default).
+    g.setColour(juce::Colour::fromRGB(220, 140, 120));
+    const float midRowY = originY + cellH * (static_cast<float>(kNy) * 0.5f);
+    for (int xCell : {0, kNx / 2})
     {
-        label = "SUBSTRATE  ±" + juce::String(displayScale_, 2);
+        const float xPx = originX + cellW * static_cast<float>(xCell);
+        g.drawEllipse(xPx - 4.0f, midRowY - 4.0f, 8.0f, 8.0f, 1.5f);
     }
-    g.drawText(label, bounds.reduced(8.0f), juce::Justification::topLeft);
 }
 
 // ----- SfsEditor -------------------------------------------------------------

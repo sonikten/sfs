@@ -36,12 +36,15 @@ public:
 
 private:
     void timerCallback() override;
+    void paint1D(juce::Graphics& g, juce::Rectangle<float> bounds);
+    void paint2D(juce::Graphics& g, juce::Rectangle<float> bounds);
 
     SfsAudioProcessor& processor_;
     static constexpr int kCells = 1024;
     std::array<float, kCells> snapshot_{};
     float displayScale_ = 1.0f; // auto-normalising peak
     bool hasSignal_ = false;
+    bool is2D_ = false; // routed in timerCallback from VoiceManager::topology()
 };
 
 class SfsEditor final : public juce::AudioProcessorEditor
