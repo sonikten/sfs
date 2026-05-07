@@ -11,6 +11,7 @@ endif()
 add_executable (sfs_integration_tests
     preset_playback_smoke_test.cpp
     preset_browse_workflow_test.cpp
+    audio_correctness_test.cpp
     editor_layout_test.cpp
 )
 
@@ -18,6 +19,8 @@ target_link_libraries (sfs_integration_tests
     PRIVATE
         SFS::PluginCore
         SFS::Preset
+        SFS::PresetEngine
+        SFS::Engine
         SFS::DeterminismFlags
         Catch2::Catch2WithMain
 )
