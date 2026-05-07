@@ -235,6 +235,77 @@ TEST_CASE("MPE pitch bend per channel: two notes bend independently", "[voice_ma
     REQUIRE(peak < 1.5f);
 }
 
+TEST_CASE("FOA render: 2D voice produces non-silent W with Z = 0", "[voice_manager][foa]")
+{
+    VoiceManager mgr(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+    mgr.setTopology(sfs::engine::Topology::Torus2D);
+    mgr.macros().tension = 0.5f;
+    mgr.macros().damping = 0.3f;
+    mgr.macros().density = 0.6f;
+    mgr.macros().migration = 0.0f;
+    mgr.macros().coherence = 1.0f;
+    mgr.macros().excitation = 0.0f;
+    mgr.noteOn(60, 1.0f);
+
+    constexpr int kSamples = kSampleRate / 4; // 0.25 s
+    std::vector<float> W(static_cast<std::size_t>(kSamples), 0.0f);
+    std::vector<float> X(static_cast<std::size_t>(kSamples), 0.0f);
+    std::vector<float> Y(static_cast<std::size_t>(kSamples), 0.0f);
+    std::vector<float> Z(static_cast<std::size_t>(kSamples), 0.0f);
+    constexpr int kBlock = 256;
+    for (int written = 0; written < kSamples; written += kBlock)
+    {
+        const int n = std::min(kBlock, kSamples - written);
+        mgr.renderBlockFoa(W.data() + written, X.data() + written, Y.data() + written, Z.data() + written, n);
+    }
+
+    // W should carry signal, Z should always be zero.
+    float peakW = 0.0f;
+    float peakZ = 0.0f;
+    for (int i = 0; i < kSamples; ++i)
+    {
+        peakW = std::max(peakW, std::fabs(W[static_cast<std::size_t>(i)]));
+        peakZ = std::max(peakZ, std::fabs(Z[static_cast<std::size_t>(i)]));
+    }
+    CAPTURE(peakW, peakZ);
+    REQUIRE(peakW > 1e-3f);
+    REQUIRE(peakW < 1.5f);
+    REQUIRE(peakZ == 0.0f); // strict zero — Z is hard-wired to 0 in 2D mode
+}
+
+TEST_CASE("FOA render: 1D voice downmixes stereo into W/X (Y=Z=0)", "[voice_manager][foa]")
+{
+    VoiceManager mgr(kSubstrateCells, /*agentCount*/ 16, kSampleRateF);
+    // Default topology is Ring1D — explicit anyway.
+    mgr.setTopology(sfs::engine::Topology::Ring1D);
+    mgr.noteOn(60, 1.0f);
+
+    constexpr int kSamples = kSampleRate / 4;
+    std::vector<float> W(static_cast<std::size_t>(kSamples), 0.0f);
+    std::vector<float> X(static_cast<std::size_t>(kSamples), 0.0f);
+    std::vector<float> Y(static_cast<std::size_t>(kSamples), 0.0f);
+    std::vector<float> Z(static_cast<std::size_t>(kSamples), 0.0f);
+    constexpr int kBlock = 256;
+    for (int written = 0; written < kSamples; written += kBlock)
+    {
+        const int n = std::min(kBlock, kSamples - written);
+        mgr.renderBlockFoa(W.data() + written, X.data() + written, Y.data() + written, Z.data() + written, n);
+    }
+
+    float peakY = 0.0f;
+    float peakZ = 0.0f;
+    float peakW = 0.0f;
+    for (int i = 0; i < kSamples; ++i)
+    {
+        peakW = std::max(peakW, std::fabs(W[static_cast<std::size_t>(i)]));
+        peakY = std::max(peakY, std::fabs(Y[static_cast<std::size_t>(i)]));
+        peakZ = std::max(peakZ, std::fabs(Z[static_cast<std::size_t>(i)]));
+    }
+    REQUIRE(peakW > 1e-3f);
+    REQUIRE(peakY == 0.0f);
+    REQUIRE(peakZ == 0.0f);
+}
+
 TEST_CASE("MPE pitch bend = 0 produces bit-exact output vs. legacy noteOn", "[voice_manager][mpe][determinism]")
 {
     // Bypass guarantee: when no MPE pitch bend is in flight the render

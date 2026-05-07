@@ -446,4 +446,101 @@ void Voice::renderBlockStereo(float* outL, float* outR, int numSamples) noexcept
     dcBlockerLastOutputR_ = prevOutR;
 }
 
+void Voice::renderBlockFoa(float* outW, float* outX, float* outY, float* outZ, int numSamples) noexcept
+{
+    if (outW == nullptr || outX == nullptr || outY == nullptr || outZ == nullptr || numSamples <= 0)
+    {
+        return;
+    }
+
+    // 1D fallback: spec sfs-spec/04 §3.6 mandates downmix-to-stereo when
+    // the substrate is 1D. Route the stereo path into W/X and zero Y/Z so
+    // a downstream FOA decoder still produces a meaningful stereo image.
+    if (topology_ != Topology::Torus2D)
+    {
+        renderBlockStereo(outW, outX, numSamples);
+        for (int i = 0; i < numSamples; ++i)
+        {
+            outY[i] = 0.0f;
+            outZ[i] = 0.0f;
+        }
+        return;
+    }
+
+    const sfs::dsp::ScopedFlushToZero scopedFtz;
+
+    macros_.clampInPlace();
+    const sfs::engine::macros::MacroValues modulated = applyModMatrix(macros_);
+    const sfs::engine::macros::InternalFields fields = sfs::engine::macros::fanOut(modulated);
+    applyMacroFanOut(fields);
+
+    // Quadrant-centre harvester positions on the 2D torus per
+    // sfs-spec/04 §3.6: (0.25, 0.25), (0.25, 0.75), (0.75, 0.25),
+    // (0.75, 0.75) of the (Nx, Ny) grid.
+    const float nx = static_cast<float>(substrate2D_.cellsX());
+    const float ny = static_cast<float>(substrate2D_.cellsY());
+    const float h0x = 0.25f * nx;
+    const float h0y = 0.25f * ny;
+    const float h1x = 0.25f * nx;
+    const float h1y = 0.75f * ny;
+    const float h2x = 0.75f * nx;
+    const float h2y = 0.25f * ny;
+    const float h3x = 0.75f * nx;
+    const float h3y = 0.75f * ny;
+
+    const float a = dcBlockerAlpha_;
+    auto prevIn = dcBlockerLastInputFoa_;
+    auto prevOut = dcBlockerLastOutputFoa_;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        for (int li = 0; li < kLfoCount; ++li)
+        {
+            lfoValues_[static_cast<std::size_t>(li)] = lfos_[static_cast<std::size_t>(li)].tick();
+        }
+        agents_.setVoiceGain(ampEnv_.tick());
+
+        agents_.processOneSample(substrate2D_, sampleRate_);
+        substrate2D_.step();
+
+        const float h0 = substrate2D_.read(h0x, h0y);
+        const float h1 = substrate2D_.read(h1x, h1y);
+        const float h2 = substrate2D_.read(h2x, h2y);
+        const float h3 = substrate2D_.read(h3x, h3y);
+
+        // SN3D / ACN encoding (spec §3.6). Z = 0 by construction.
+        const float rawW = 0.5f * (h0 + h1 + h2 + h3);
+        const float rawX = 0.5f * (h2 + h3 - h0 - h1);
+        const float rawY = 0.5f * (h1 + h3 - h0 - h2);
+        const float rawZ = 0.0f;
+
+        // Per-channel DC blocker + soft clip + steal ramp. We deliberately
+        // DC-block AFTER encoding: the W channel sums all 4 harvester DCs
+        // so its DC offset is the largest of the four; X/Y get cancellation
+        // but a blocker is harmless. Z stays at 0 throughout.
+        const std::array<float, 4> raw = {rawW, rawX, rawY, rawZ};
+        std::array<float, 4> out{};
+        for (int c = 0; c < 4; ++c)
+        {
+            const float blocked = raw[static_cast<std::size_t>(c)] - prevIn[static_cast<std::size_t>(c)] +
+                                  a * prevOut[static_cast<std::size_t>(c)];
+            prevIn[static_cast<std::size_t>(c)] = raw[static_cast<std::size_t>(c)];
+            prevOut[static_cast<std::size_t>(c)] = blocked;
+            out[static_cast<std::size_t>(c)] = softClip(kOutputPreGain * blocked) * stealRampGain_;
+        }
+        outW[i] = out[0];
+        outX[i] = out[1];
+        outY[i] = out[2];
+        outZ[i] = out[3];
+
+        if (stealRampGain_ < 1.0f)
+        {
+            stealRampGain_ = std::min(1.0f, stealRampGain_ + stealRampInc_);
+        }
+    }
+
+    dcBlockerLastInputFoa_ = prevIn;
+    dcBlockerLastOutputFoa_ = prevOut;
+}
+
 } // namespace sfs::engine

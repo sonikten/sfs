@@ -187,7 +187,18 @@ void SfsAudioProcessor::releaseResources()
 bool SfsAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     const auto& out = layouts.getMainOutputChannelSet();
-    return out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo();
+    // Phase 3 supported layouts:
+    //   mono / stereo         — Phase 2 default paths
+    //   ambisonic(1) / 4ch    — first-order ambisonic (sfs-spec/04 §3.6)
+    if (out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo())
+    {
+        return true;
+    }
+    if (out == juce::AudioChannelSet::ambisonic(1) || (out.size() == 4 && out == juce::AudioChannelSet::quadraphonic()))
+    {
+        return true;
+    }
+    return false;
 }
 
 void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
@@ -304,10 +315,20 @@ void SfsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
         }
     }
 
-    // Stereo render: two harvesters at substrate positions 0 and N/2 give
-    // inter-channel decorrelation from the substrate's wave propagation
-    // between them (sfs-spec/04 §3.2). Mono fallback duplicates L.
-    if (numChannels >= 2)
+    // Phase 3: dispatch by output bus layout.
+    //   1 ch        — mono downmix of stereo render
+    //   2 ch        — stereo (Phase 2 default)
+    //   4 ch        — first-order ambisonic / quadraphonic (W, X, Y, Z)
+    //                 ACN/SN3D order; sfs-spec/04 §3.6
+    if (numChannels == 4)
+    {
+        auto* const outW = buffer.getWritePointer(0);
+        auto* const outX = buffer.getWritePointer(1);
+        auto* const outY = buffer.getWritePointer(2);
+        auto* const outZ = buffer.getWritePointer(3);
+        voiceManager_->renderBlockFoa(outW, outX, outY, outZ, numSamples);
+    }
+    else if (numChannels >= 2)
     {
         auto* const outL = buffer.getWritePointer(0);
         auto* const outR = buffer.getWritePointer(1);

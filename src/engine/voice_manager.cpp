@@ -24,7 +24,11 @@ VoiceManager::VoiceManager(int substrateCells, int agentCount, float sampleRate)
       // block won't have to ramp from zero.
       sampleRate_(sampleRate),
       scratchL_(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
-      scratchR_(static_cast<std::size_t>(kMaxBlockSize), 0.0f)
+      scratchR_(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+      scratchFoaW_(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+      scratchFoaX_(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+      scratchFoaY_(static_cast<std::size_t>(kMaxBlockSize), 0.0f),
+      scratchFoaZ_(static_cast<std::size_t>(kMaxBlockSize), 0.0f)
 {
     // MPE timbre default is centred — MPE 1.0 §6.4 reset value.
     for (auto& v : channelTimbre_)
@@ -413,6 +417,87 @@ void VoiceManager::renderBlockStereo(float* outL, float* outR, int numSamples) n
     {
         outL[i] = busSoftClip(outL[i]);
         outR[i] = busSoftClip(outR[i]);
+    }
+}
+
+void VoiceManager::renderBlockFoa(float* outW, float* outX, float* outY, float* outZ, int numSamples) noexcept
+{
+    if (outW == nullptr || outX == nullptr || outY == nullptr || outZ == nullptr || numSamples <= 0)
+    {
+        return;
+    }
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        outW[i] = 0.0f;
+        outX[i] = 0.0f;
+        outY[i] = 0.0f;
+        outZ[i] = 0.0f;
+    }
+
+    if (numSamples > kMaxBlockSize)
+    {
+        for (int written = 0; written < numSamples;)
+        {
+            const int chunk = std::min(kMaxBlockSize, numSamples - written);
+            renderBlockFoa(outW + written, outX + written, outY + written, outZ + written, chunk);
+            written += chunk;
+        }
+        return;
+    }
+
+    float* const bufW = scratchFoaW_.data();
+    float* const bufX = scratchFoaX_.data();
+    float* const bufY = scratchFoaY_.data();
+    float* const bufZ = scratchFoaZ_.data();
+
+    // Same macro smoothing as the stereo path. Padé approximation for
+    // the one-pole alpha (std::exp forbidden in src/engine).
+    constexpr float kTauSec = 0.030f;
+    const float denom = std::max(0.001f, kTauSec * sampleRate_);
+    const float x = static_cast<float>(numSamples) / denom;
+    const float alpha = (2.0f * x) / (2.0f + x);
+    smoothedMacros_.tension += (macroTargets_.tension - smoothedMacros_.tension) * alpha;
+    smoothedMacros_.damping += (macroTargets_.damping - smoothedMacros_.damping) * alpha;
+    smoothedMacros_.density += (macroTargets_.density - smoothedMacros_.density) * alpha;
+    smoothedMacros_.migration += (macroTargets_.migration - smoothedMacros_.migration) * alpha;
+    smoothedMacros_.coherence += (macroTargets_.coherence - smoothedMacros_.coherence) * alpha;
+    smoothedMacros_.excitation += (macroTargets_.excitation - smoothedMacros_.excitation) * alpha;
+    smoothedMacros_.clampInPlace();
+
+    for (auto& s : slots_)
+    {
+        const bool shouldRender = s.voice.isGated() || s.midiNote >= 0;
+        if (!shouldRender)
+        {
+            continue;
+        }
+        s.voice.macros() = smoothedMacros_;
+        s.voice.setUniformShape(uniformShape_);
+        s.voice.setMidiCc1(midiCc1_);
+
+        s.voice.renderBlockFoa(bufW, bufX, bufY, bufZ, numSamples);
+        for (int i = 0; i < numSamples; ++i)
+        {
+            outW[i] += bufW[i];
+            outX[i] += bufX[i];
+            outY[i] += bufY[i];
+            outZ[i] += bufZ[i];
+        }
+
+        if (!s.voice.isGated() && s.midiNote >= 0)
+        {
+            s.midiNote = -1;
+        }
+    }
+
+    auto busSoftClip = [](float v) noexcept { return v / (1.0f + std::fabs(v)); };
+    for (int i = 0; i < numSamples; ++i)
+    {
+        outW[i] = busSoftClip(outW[i]);
+        outX[i] = busSoftClip(outX[i]);
+        outY[i] = busSoftClip(outY[i]);
+        outZ[i] = busSoftClip(outZ[i]); // pass-through (Z=0)
     }
 }
 

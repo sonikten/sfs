@@ -63,6 +63,21 @@ public:
     // are unchanged, only the harvester read + DC + soft-clip happen twice.
     void renderBlockStereo(float* outL, float* outR, int numSamples) noexcept;
 
+    // Render `numSamples` of first-order horizontal-plane ambisonic
+    // (sfs-spec/04 §3.6). 4 channels: W (omni), X (front-back), Y
+    // (left-right), Z (up-down, always 0 — substrate is at most 2D).
+    //
+    // 2D topology: 4 harvesters at the substrate's quadrant centres
+    // [(0.25·Nx, 0.25·Ny), (0.25·Nx, 0.75·Ny), (0.75·Nx, 0.25·Ny),
+    // (0.75·Nx, 0.75·Ny)] feed the SN3D/ACN encoding matrix from the
+    // spec (W = 0.5·Σ, X = 0.5·(h2+h3-h0-h1), Y = 0.5·(h1+h3-h0-h2)).
+    //
+    // 1D topology: spec calls for downmix-to-stereo (sfs-spec/04 §3.6
+    // "FOA layouts downmix to stereo"). We render the stereo path into
+    // W/X (L/R) and zero Y/Z so a downstream FOA decoder still produces
+    // a sensible stereo image; the result is not "real" ambisonic.
+    void renderBlockFoa(float* outW, float* outX, float* outY, float* outZ, int numSamples) noexcept;
+
     [[nodiscard]] bool isGated() const noexcept { return gated_; }
     [[nodiscard]] float sampleRate() const noexcept { return sampleRate_; }
 
@@ -193,6 +208,11 @@ private:
     float dcBlockerLastOutputL_ = 0.0f;
     float dcBlockerLastInputR_ = 0.0f; // stereo R
     float dcBlockerLastOutputR_ = 0.0f;
+
+    // FOA per-channel DC-blocker state (W, X, Y, Z). Z's blocker is wired
+    // for symmetry but Z is always 0, so its state stays at 0 too.
+    std::array<float, 4> dcBlockerLastInputFoa_{};
+    std::array<float, 4> dcBlockerLastOutputFoa_{};
 
     // Stereo harvester positions. Mono renderBlock uses harvesterPosition_
     // (set to substrate midpoint by default, kept for test compatibility).

@@ -54,6 +54,11 @@ public:
     // Per-block render. Sums all active voices into the stereo output bus.
     void renderBlockStereo(float* outL, float* outR, int numSamples) noexcept;
 
+    // Per-block first-order ambisonic render (sfs-spec/04 §3.6). Sums all
+    // active voices into 4 channels (W, X, Y, Z); Z is always 0 because
+    // the substrate is at most 2D.
+    void renderBlockFoa(float* outW, float* outX, float* outY, float* outZ, int numSamples) noexcept;
+
     // Mutable macros that ALL voices share. The plug-in shell writes once
     // before renderBlockStereo; each voice copies the snapshot at its own
     // block boundary.
@@ -144,6 +149,10 @@ private:
     static constexpr int kMaxBlockSize = 8192;
     std::vector<float> scratchL_;
     std::vector<float> scratchR_;
+    std::vector<float> scratchFoaW_;
+    std::vector<float> scratchFoaX_;
+    std::vector<float> scratchFoaY_;
+    std::vector<float> scratchFoaZ_;
 };
 
 } // namespace sfs::engine
