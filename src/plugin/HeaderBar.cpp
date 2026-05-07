@@ -41,11 +41,11 @@ HeaderBar::HeaderBar(SfsAudioProcessor& processor) : processor_(processor)
     productLabel_.setColour(juce::Label::textColourId, juce::Colour::fromRGB(220, 235, 245));
     addAndMakeVisible(productLabel_);
 
-    presetLabel_.setText(processor_.currentPresetName(), juce::dontSendNotification);
-    presetLabel_.setFont(juce::Font(juce::FontOptions(14.0f)));
-    presetLabel_.setColour(juce::Label::textColourId, juce::Colour::fromRGB(160, 195, 220));
-    presetLabel_.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(presetLabel_);
+    presetButton_.setButtonText(processor_.currentPresetName());
+    presetButton_.onClick = [this] { onPresetMenu(); };
+    presetButton_.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(28, 35, 45));
+    presetButton_.setColour(juce::TextButton::textColourOffId, juce::Colour::fromRGB(180, 215, 235));
+    addAndMakeVisible(presetButton_);
 
     browseButton_.onClick = [this] { onBrowse(); };
     addAndMakeVisible(browseButton_);
@@ -60,10 +60,140 @@ HeaderBar::~HeaderBar() = default;
 void HeaderBar::timerCallback()
 {
     const auto& name = processor_.currentPresetName();
-    if (presetLabel_.getText() != name)
+    if (presetButton_.getButtonText() != name)
     {
-        presetLabel_.setText(name, juce::dontSendNotification);
+        presetButton_.setButtonText(name);
     }
+}
+
+void HeaderBar::rescanFactory()
+{
+    factoryByCategory_.clear();
+    auto root = defaultPresetDir();
+    // If defaultPresetDir landed on the user home (no factory found), bail.
+    if (root.getFileName() != "factory")
+    {
+        // Try one of the known relative locations explicitly.
+        for (const auto& cand : {juce::File::getCurrentWorkingDirectory().getChildFile("presets/factory"),
+                                 juce::File::getCurrentWorkingDirectory().getChildFile("../presets/factory"),
+                                 juce::File::getCurrentWorkingDirectory().getChildFile("../../presets/factory")})
+        {
+            if (cand.isDirectory())
+            {
+                root = cand;
+                break;
+            }
+        }
+    }
+    if (!root.isDirectory())
+    {
+        factoryScanned_ = true;
+        return;
+    }
+    juce::Array<juce::File> files;
+    root.findChildFiles(files, juce::File::findFiles, true, "*.sfs");
+    for (const auto& f : files)
+    {
+        const auto category = f.getParentDirectory().getFileName(); // "drone", "init", etc.
+        if (!factoryByCategory_.contains(category))
+        {
+            factoryByCategory_.set(category, {});
+        }
+        auto& list = factoryByCategory_.getReference(category);
+        FactoryEntry entry;
+        entry.path = f;
+        entry.displayName = f.getFileNameWithoutExtension();
+        list.add(entry);
+    }
+    factoryScanned_ = true;
+}
+
+void HeaderBar::onPresetMenu()
+{
+    if (!factoryScanned_)
+    {
+        rescanFactory();
+    }
+
+    juce::PopupMenu menu;
+    juce::Array<juce::File> allFiles; // running list for prev/next future use
+
+    // Order categories deterministically: init first (Doc 09 §4 Init
+    // is the documentation set), then alphabetical.
+    juce::StringArray categories;
+    for (juce::HashMap<juce::String, juce::Array<FactoryEntry>>::Iterator it(factoryByCategory_); it.next();)
+    {
+        categories.add(it.getKey());
+    }
+    categories.sort(true /*ignoreCase*/);
+    if (auto initIdx = categories.indexOf("init", true); initIdx > 0)
+    {
+        categories.move(initIdx, 0);
+    }
+
+    int nextItemId = 1000;
+    juce::Array<juce::File> idToFile; // index = (id - 1000)
+    for (const auto& cat : categories)
+    {
+        const auto& entries = factoryByCategory_[cat];
+        if (entries.isEmpty())
+        {
+            continue;
+        }
+        juce::PopupMenu sub;
+        // Sort entries by displayName.
+        auto sorted = entries;
+        std::sort(sorted.begin(),
+                  sorted.end(),
+                  [](const FactoryEntry& a, const FactoryEntry& b) { return a.displayName < b.displayName; });
+        for (const auto& e : sorted)
+        {
+            sub.addItem(nextItemId, e.displayName);
+            idToFile.add(e.path);
+            ++nextItemId;
+        }
+        menu.addSubMenu(cat.toUpperCase(), sub);
+    }
+    if (categories.isEmpty())
+    {
+        menu.addItem(1, "(no factory presets found)", false);
+        menu.addSeparator();
+        menu.addItem(2, "Rescan...");
+    }
+    else
+    {
+        menu.addSeparator();
+        menu.addItem(2, "Rescan factory directory");
+    }
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(presetButton_),
+                       [this, idToFile = std::move(idToFile)](int result) mutable
+                       {
+                           if (result == 0)
+                           {
+                               return;
+                           }
+                           if (result == 2)
+                           {
+                               factoryScanned_ = false;
+                               return;
+                           }
+                           const int idx = result - 1000;
+                           if (idx < 0 || idx >= idToFile.size())
+                           {
+                               return;
+                           }
+                           juce::String err;
+                           if (!processor_.loadPresetFromFile(idToFile[idx].getFullPathName(), err))
+                           {
+                               juce::AlertWindow::showAsync(juce::MessageBoxOptions{}
+                                                                .withIconType(juce::MessageBoxIconType::WarningIcon)
+                                                                .withTitle("Preset load failed")
+                                                                .withMessage(err)
+                                                                .withButton("OK"),
+                                                            nullptr);
+                           }
+                       });
 }
 
 void HeaderBar::onBrowse()
@@ -152,7 +282,9 @@ void HeaderBar::resized()
     area.removeFromRight(6);
     browseButton_.setBounds(area.removeFromRight(80));
     area.removeFromRight(8);
-    presetLabel_.setBounds(area);
+    // Preset button takes the remaining space; clicking it opens the
+    // factory chooser popup.
+    presetButton_.setBounds(area);
 }
 
 } // namespace sfs::plugin

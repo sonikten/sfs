@@ -34,12 +34,26 @@ private:
     void onBrowse();
     void onSaveAs();
 
+    void onPresetMenu();
+    void rescanFactory();
+
     SfsAudioProcessor& processor_;
     juce::Label productLabel_;
-    juce::Label presetLabel_;
+    juce::TextButton presetButton_{"Init"}; // shows current preset name; click → factory popup
     juce::TextButton browseButton_{"Load..."};
     juce::TextButton saveButton_{"Save As..."};
     std::unique_ptr<juce::FileChooser> fileChooser_;
+
+    // Factory preset index: relative paths grouped by category (folder
+    // name under presets/factory/). Built at first popup open + cached
+    // for subsequent opens.
+    struct FactoryEntry
+    {
+        juce::String displayName;
+        juce::File path;
+    };
+    juce::HashMap<juce::String, juce::Array<FactoryEntry>> factoryByCategory_;
+    bool factoryScanned_ = false;
 };
 
 } // namespace sfs::plugin
