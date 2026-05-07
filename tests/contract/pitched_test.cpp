@@ -101,34 +101,39 @@ namespace
 
 } // namespace
 
-TEST_CASE("Pitched contract (Phase 1 form): chromatic notes match expected pitch ±3%", "[contract][pitched]")
+namespace
+{
+
+struct PitchResult
+{
+    int passed = 0;
+    int failed = 0;
+};
+
+PitchResult runChromaticSweep(sfs::engine::Topology topology, int midiLo, int midiHi)
 {
     using sfs::engine::Voice;
 
     constexpr int kSampleRate = 48000;
     constexpr int kSubstrateCells = 1024;
     constexpr int kAgentCount = 16;
-    constexpr float kHoldSeconds = 0.6f;     // 0.8 s per spec; trimmed for test wall time
-    constexpr float kAnalysisStart = 0.2f;   // skip transient / ignition burst
-    constexpr int kMidiLo = 48;              // C3
-    constexpr int kMidiHi = 60;              // C4 inclusive → 13 notes
-    constexpr float kPitchTolerance = 0.03f; // ±3 % per spec
+    constexpr float kHoldSeconds = 0.6f;
+    constexpr float kAnalysisStart = 0.2f;
+    constexpr float kPitchTolerance = 0.03f;
 
-    int notesPassed = 0;
-    int notesFailed = 0;
+    PitchResult result;
 
-    for (int midi = kMidiLo; midi <= kMidiHi; ++midi)
+    for (int midi = midiLo; midi <= midiHi; ++midi)
     {
         Voice voice(kSubstrateCells, kAgentCount, static_cast<float>(kSampleRate));
+        if (topology == sfs::engine::Topology::Torus2D)
+        {
+            voice.setTopology(topology);
+        }
 
-        // Phase 2 pitched preset (same as drone): EXCITATION = 0 to keep
-        // the agent fundamental clean; MIGRATION = 0 so the agents stay
-        // put. Per-agent scale zeroes also needed because MIGRATION's
-        // fan-out isn't yet applied to live state.
         voice.macros().excitation = 0.0f;
         voice.macros().migration = 0.0f;
         voice.macros().coherence = 1.0f;
-        // Pitched preset: empty mod matrix — keeps the fundamental clean.
         voice.modMatrix().clearAllSlots();
         voice.noteOn(midi, 1.0f);
         auto& agents = voice.agents();
@@ -148,10 +153,13 @@ TEST_CASE("Pitched contract (Phase 1 form): chromatic notes match expected pitch
             voice.renderBlock(mono.data() + written, n);
         }
 
-        // Analyse the steady-state window.
         const int analysisStart = static_cast<int>(kAnalysisStart * static_cast<float>(kSampleRate));
         const int analysisLen = totalSamples - analysisStart;
-        REQUIRE(analysisLen > 0);
+        if (analysisLen <= 0)
+        {
+            ++result.failed;
+            continue;
+        }
 
         const float estimatedHz = autocorrelationPitchHz(mono.data() + analysisStart,
                                                          analysisLen,
@@ -171,18 +179,38 @@ TEST_CASE("Pitched contract (Phase 1 form): chromatic notes match expected pitch
                     pass ? "OK" : "FAIL");
         if (pass)
         {
-            ++notesPassed;
+            ++result.passed;
         }
         else
         {
-            ++notesFailed;
+            ++result.failed;
         }
     }
+    return result;
+}
 
-    std::printf("\n[pitched contract] %d / %d notes within ±%.0f%%\n",
-                notesPassed,
-                notesPassed + notesFailed,
-                static_cast<double>(kPitchTolerance) * 100.0);
+} // namespace
 
-    REQUIRE(notesFailed == 0);
+TEST_CASE("Pitched contract (1D Phase 2 form): chromatic notes match ±3%", "[contract][pitched][1d]")
+{
+    constexpr int kMidiLo = 48; // C3
+    constexpr int kMidiHi = 60; // C4 inclusive → 13 notes
+
+    const auto r = runChromaticSweep(sfs::engine::Topology::Ring1D, kMidiLo, kMidiHi);
+    std::printf("\n[pitched contract 1D] %d / %d notes within ±3%%\n", r.passed, r.passed + r.failed);
+    REQUIRE(r.failed == 0);
+}
+
+TEST_CASE("Pitched contract (2D torus): chromatic notes match ±3%", "[contract][pitched][2d]")
+{
+    // 2D substrate physics has more dispersion, so we narrow the note
+    // range to C3-G3 (where the autocorrelation is most reliable on
+    // a 32×32 torus). Phase 4 gets a stricter test once SIMD enables
+    // 64×64 / 128×128 grids.
+    constexpr int kMidiLo = 48; // C3
+    constexpr int kMidiHi = 55; // G3
+
+    const auto r = runChromaticSweep(sfs::engine::Topology::Torus2D, kMidiLo, kMidiHi);
+    std::printf("\n[pitched contract 2D] %d / %d notes within ±3%%\n", r.passed, r.passed + r.failed);
+    REQUIRE(r.failed == 0);
 }
