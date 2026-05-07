@@ -204,141 +204,161 @@ int main(int argc, char** argv)
     }
     outDir.createDirectory();
 
-    std::printf("Rendering %d presets -> %s\n",
-                static_cast<int>(sizeof(kPresets) / sizeof(kPresets[0])),
+    constexpr int kPresetCount = static_cast<int>(sizeof(kPresets) / sizeof(kPresets[0]));
+    std::printf("Rendering %d presets x 2 topologies (1D ring + 2D torus) -> %s\n",
+                kPresetCount,
                 outDir.getFullPathName().toRawUTF8());
 
     std::string report;
-    report += "Preset    Peak    RMS     DC(L)     DC(R)     ZC/sec  Sub|peak  Sub|mean  RMS by second\n";
-    report +=
-        "------    ------  ------  --------  --------  ------  --------  --------  ----------------------------\n";
+    report += "Preset            Peak    RMS     DC(L)     DC(R)     ZC/sec  Sub|peak  Sub|mean  RMS by second\n";
+    report += "----------------  ------  ------  --------  --------  ------  --------  --------  "
+              "----------------------------\n";
+
+    // Render each preset in BOTH topologies (Phase 3 step 11). Both clips
+    // hash-match across platforms; the 2D path covers Substrate2D + agent
+    // 2D dispatch + the 2D harvester layout, which 1D-only renders miss.
+    struct TopologyEntry
+    {
+        sfs::engine::Topology topology;
+        const char* suffix;
+    };
+    const TopologyEntry kTopologies[] = {
+        {sfs::engine::Topology::Ring1D, "_1d"},
+        {sfs::engine::Topology::Torus2D, "_2d"},
+    };
 
     int failures = 0;
-    for (const auto& preset : kPresets)
-    {
-        // Render through VoiceManager so the harness reflects the full
-        // host-facing path (per-voice + bus soft-clip + macro fan-out
-        // exactly as Live sees it).
-        sfs::engine::VoiceManager vm(kSubstrateN, kAgentCount, static_cast<float>(kSampleRate));
-        vm.macros().tension = preset.tension;
-        vm.macros().damping = preset.damping;
-        vm.macros().density = preset.density;
-        vm.macros().migration = preset.migration;
-        vm.macros().coherence = preset.coherence;
-        vm.macros().excitation = preset.excitation;
-        if (preset.clearMatrix)
+    for (const auto& topo : kTopologies)
+        for (const auto& preset : kPresets)
         {
-            for (int slot = 0; slot < sfs::engine::mod_matrix::ModMatrix::kNumSlots; ++slot)
+            // Render through VoiceManager so the harness reflects the full
+            // host-facing path (per-voice + bus soft-clip + macro fan-out
+            // exactly as Live sees it).
+            sfs::engine::VoiceManager vm(kSubstrateN, kAgentCount, static_cast<float>(kSampleRate));
+            vm.setTopology(topo.topology);
+            vm.macros().tension = preset.tension;
+            vm.macros().damping = preset.damping;
+            vm.macros().density = preset.density;
+            vm.macros().migration = preset.migration;
+            vm.macros().coherence = preset.coherence;
+            vm.macros().excitation = preset.excitation;
+            if (preset.clearMatrix)
             {
-                vm.setModMatrixSlotDepth(slot, 0.0f);
-            }
-        }
-        vm.noteOn(preset.midiNote, preset.velocity);
-
-        const int totalSamples = static_cast<int>(kHoldSeconds * static_cast<float>(kSampleRate));
-        std::vector<float> interleaved(static_cast<std::size_t>(totalSamples * 2), 0.0f);
-        std::vector<float> bufL(static_cast<std::size_t>(kBlockSize), 0.0f);
-        std::vector<float> bufR(static_cast<std::size_t>(kBlockSize), 0.0f);
-
-        // Track substrate peak/mean over the full render to catch drift.
-        float substratePeak = 0.0f;
-        double substrateMeanSum = 0.0;
-        int substrateMeanCount = 0;
-        std::vector<float> snap(static_cast<std::size_t>(kSubstrateN), 0.0f);
-
-        int written = 0;
-        while (written < totalSamples)
-        {
-            const int n = std::min(kBlockSize, totalSamples - written);
-            vm.renderBlockStereo(bufL.data(), bufR.data(), n);
-            for (int i = 0; i < n; ++i)
-            {
-                interleaved[static_cast<std::size_t>(2 * (written + i) + 0)] = bufL[static_cast<std::size_t>(i)];
-                interleaved[static_cast<std::size_t>(2 * (written + i) + 1)] = bufR[static_cast<std::size_t>(i)];
-            }
-            written += n;
-
-            if ((written / kBlockSize) % 16 == 0)
-            {
-                if (vm.snapshotPrimaryVoiceSubstrate(snap.data(), kSubstrateN))
+                for (int slot = 0; slot < sfs::engine::mod_matrix::ModMatrix::kNumSlots; ++slot)
                 {
-                    double m = 0.0;
-                    float p = 0.0f;
-                    for (float v : snap)
-                    {
-                        m += static_cast<double>(v);
-                        const float a = std::fabs(v);
-                        if (a > p)
-                        {
-                            p = a;
-                        }
-                    }
-                    if (p > substratePeak)
-                    {
-                        substratePeak = p;
-                    }
-                    substrateMeanSum += m / static_cast<double>(kSubstrateN);
-                    ++substrateMeanCount;
+                    vm.setModMatrixSlotDepth(slot, 0.0f);
                 }
             }
+            vm.noteOn(preset.midiNote, preset.velocity);
+
+            const int totalSamples = static_cast<int>(kHoldSeconds * static_cast<float>(kSampleRate));
+            std::vector<float> interleaved(static_cast<std::size_t>(totalSamples * 2), 0.0f);
+            std::vector<float> bufL(static_cast<std::size_t>(kBlockSize), 0.0f);
+            std::vector<float> bufR(static_cast<std::size_t>(kBlockSize), 0.0f);
+
+            // Track substrate peak/mean over the full render to catch drift.
+            float substratePeak = 0.0f;
+            double substrateMeanSum = 0.0;
+            int substrateMeanCount = 0;
+            std::vector<float> snap(static_cast<std::size_t>(kSubstrateN), 0.0f);
+
+            int written = 0;
+            while (written < totalSamples)
+            {
+                const int n = std::min(kBlockSize, totalSamples - written);
+                vm.renderBlockStereo(bufL.data(), bufR.data(), n);
+                for (int i = 0; i < n; ++i)
+                {
+                    interleaved[static_cast<std::size_t>(2 * (written + i) + 0)] = bufL[static_cast<std::size_t>(i)];
+                    interleaved[static_cast<std::size_t>(2 * (written + i) + 1)] = bufR[static_cast<std::size_t>(i)];
+                }
+                written += n;
+
+                if ((written / kBlockSize) % 16 == 0)
+                {
+                    if (vm.snapshotPrimaryVoiceSubstrate(snap.data(), kSubstrateN))
+                    {
+                        double m = 0.0;
+                        float p = 0.0f;
+                        for (float v : snap)
+                        {
+                            m += static_cast<double>(v);
+                            const float a = std::fabs(v);
+                            if (a > p)
+                            {
+                                p = a;
+                            }
+                        }
+                        if (p > substratePeak)
+                        {
+                            substratePeak = p;
+                        }
+                        substrateMeanSum += m / static_cast<double>(kSubstrateN);
+                        ++substrateMeanCount;
+                    }
+                }
+            }
+
+            const float substrateMean = (substrateMeanCount > 0)
+                                            ? static_cast<float>(substrateMeanSum /
+                                                                 static_cast<double>(substrateMeanCount))
+                                            : 0.0f;
+
+            Stats s = analyse(interleaved, kSampleRate, substratePeak, substrateMean);
+
+            // Health checks — any preset that violates these is a regression
+            // worth flagging from CI. Velocity > 0 must produce sound; peaks
+            // must stay under the bus soft-clip limit; no NaN; substrate
+            // bounded by its runaway clamp.
+            const bool nan = !std::isfinite(s.peak) || !std::isfinite(s.rms) || !std::isfinite(s.substratePeak);
+            const bool peakBad = s.peak > 1.5f;
+            const bool subBad = s.substratePeak > 20.5f;
+            const bool dcBad = std::fabs(s.meanL) > 0.10 || std::fabs(s.meanR) > 0.10;
+            const bool silentNoteOn = (preset.velocity > 0.05f) && (s.rms < 0.001f);
+            const std::string fileStem = std::string(preset.name) + topo.suffix;
+            if (nan || peakBad || subBad || dcBad || silentNoteOn)
+            {
+                ++failures;
+                std::fprintf(stderr,
+                             "[FAIL] %s: nan=%d peak=%d sub=%d dc=%d silent=%d\n",
+                             fileStem.c_str(),
+                             nan ? 1 : 0,
+                             peakBad ? 1 : 0,
+                             subBad ? 1 : 0,
+                             dcBad ? 1 : 0,
+                             silentNoteOn ? 1 : 0);
+            }
+
+            // Files. Suffix encodes the topology so 1D + 2D coexist in the
+            // same artefact directory and both feed the cross-platform hash
+            // compare in determinism.yml.
+            writeWav(outDir.getChildFile(juce::String(fileStem) + ".wav"), interleaved, kSampleRate, 2);
+            writeRaw(outDir.getChildFile(juce::String(fileStem) + ".raw"), interleaved);
+
+            // Report row.
+            char row[512];
+            std::string rmsByLine;
+            for (float r : s.rmsBySecond)
+            {
+                char buf[16];
+                std::snprintf(buf, sizeof(buf), "%.4f ", r);
+                rmsByLine += buf;
+            }
+            std::snprintf(row,
+                          sizeof(row),
+                          "%-16s  %.4f  %.4f  %+.5f  %+.5f  %5d   %.4f    %+.5f   %s",
+                          fileStem.c_str(),
+                          static_cast<double>(s.peak),
+                          static_cast<double>(s.rms),
+                          s.meanL,
+                          s.meanR,
+                          s.zeroCrossingsPerSec,
+                          static_cast<double>(s.substratePeak),
+                          static_cast<double>(s.substrateMean),
+                          rmsByLine.c_str());
+            report += row;
+            report += "\n";
         }
-
-        const float substrateMean = (substrateMeanCount > 0)
-                                        ? static_cast<float>(substrateMeanSum / static_cast<double>(substrateMeanCount))
-                                        : 0.0f;
-
-        Stats s = analyse(interleaved, kSampleRate, substratePeak, substrateMean);
-
-        // Health checks — any preset that violates these is a regression
-        // worth flagging from CI. Velocity > 0 must produce sound; peaks
-        // must stay under the bus soft-clip limit; no NaN; substrate
-        // bounded by its runaway clamp.
-        const bool nan = !std::isfinite(s.peak) || !std::isfinite(s.rms) || !std::isfinite(s.substratePeak);
-        const bool peakBad = s.peak > 1.5f;
-        const bool subBad = s.substratePeak > 20.5f;
-        const bool dcBad = std::fabs(s.meanL) > 0.10 || std::fabs(s.meanR) > 0.10;
-        const bool silentNoteOn = (preset.velocity > 0.05f) && (s.rms < 0.001f);
-        if (nan || peakBad || subBad || dcBad || silentNoteOn)
-        {
-            ++failures;
-            std::fprintf(stderr,
-                         "[FAIL] %s: nan=%d peak=%d sub=%d dc=%d silent=%d\n",
-                         preset.name,
-                         nan ? 1 : 0,
-                         peakBad ? 1 : 0,
-                         subBad ? 1 : 0,
-                         dcBad ? 1 : 0,
-                         silentNoteOn ? 1 : 0);
-        }
-
-        // Files.
-        writeWav(outDir.getChildFile(juce::String(preset.name) + ".wav"), interleaved, kSampleRate, 2);
-        writeRaw(outDir.getChildFile(juce::String(preset.name) + ".raw"), interleaved);
-
-        // Report row.
-        char row[512];
-        std::string rmsByLine;
-        for (float r : s.rmsBySecond)
-        {
-            char buf[16];
-            std::snprintf(buf, sizeof(buf), "%.4f ", r);
-            rmsByLine += buf;
-        }
-        std::snprintf(row,
-                      sizeof(row),
-                      "%-8s  %.4f  %.4f  %+.5f  %+.5f  %5d   %.4f    %+.5f   %s",
-                      preset.name,
-                      static_cast<double>(s.peak),
-                      static_cast<double>(s.rms),
-                      s.meanL,
-                      s.meanR,
-                      s.zeroCrossingsPerSec,
-                      static_cast<double>(s.substratePeak),
-                      static_cast<double>(s.substrateMean),
-                      rmsByLine.c_str());
-        report += row;
-        report += "\n";
-    }
 
     // Stdout + report file.
     std::printf("\n%s", report.c_str());
