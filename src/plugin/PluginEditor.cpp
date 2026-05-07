@@ -216,15 +216,17 @@ SfsEditor::SfsEditor(SfsAudioProcessor& processor)
       headerBar_(processor),
       substrateView_(processor),
       macroPanel_(processor),
-      advancedKnobs_(processor)
+      advancedKnobs_(processor),
+      footer_(processor)
 {
     addAndMakeVisible(headerBar_);
     addAndMakeVisible(substrateView_);
     addAndMakeVisible(macroPanel_);
     addAndMakeVisible(advancedKnobs_);
+    addAndMakeVisible(footer_);
     setResizable(true, true);
-    setResizeLimits(640, 600, 1600, 1400);
-    setSize(960, 820);
+    setResizeLimits(640, 620, 1600, 1400);
+    setSize(960, 850);
 }
 
 void SfsEditor::paint(juce::Graphics& g)
@@ -237,6 +239,8 @@ void SfsEditor::resized()
     auto area = getLocalBounds();
     // Header strip: 48 px tall per Doc 07 §3.
     headerBar_.setBounds(area.removeFromTop(48));
+    // Footer strip: 22 px tall (Doc 07 §8 status bar).
+    footer_.setBounds(area.removeFromBottom(22));
     // Substrate visualiser ~35% of remaining height.
     substrateView_.setBounds(area.removeFromTop(static_cast<int>(area.getHeight() * 0.36f)));
     // Macro panel ~30% of remaining.

@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include "Footer.h"
 #include "HeaderBar.h"
 #include "MacroPanel.h"
 #include "PluginProcessor.h"
@@ -63,6 +64,7 @@ private:
     SubstrateView substrateView_;
     MacroPanel macroPanel_;
     juce::GenericAudioProcessorEditor advancedKnobs_;
+    Footer footer_;
 };
 
 } // namespace sfs::plugin
