@@ -27,3 +27,24 @@ target_link_libraries(sfs_preset
 set_target_properties(sfs_preset PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
+
+# Engine binding lives in a separate target so JSON-only consumers
+# (e.g. preset linters) don't have to drag in the engine.
+add_library(sfs_preset_engine STATIC
+    preset_engine.cpp
+)
+
+add_library(SFS::PresetEngine ALIAS sfs_preset_engine)
+
+target_link_libraries(sfs_preset_engine
+    PUBLIC
+        SFS::Preset
+        SFS::Engine
+        SFS::DeterminismFlags
+    PRIVATE
+        SFS::StrictWarnings
+)
+
+set_target_properties(sfs_preset_engine PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+)

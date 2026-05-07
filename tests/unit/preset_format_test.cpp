@@ -7,7 +7,9 @@
 //     path with the right content; no .tmp left behind.
 //   * Malformed input is rejected with PresetParseError.
 
+#include "engine/voice_manager.h"
 #include "preset/preset.h"
+#include "preset/preset_engine.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -182,4 +184,111 @@ TEST_CASE("Preset save+load is atomic; no .tmp left on success", "[preset]")
 TEST_CASE("Preset loadFromFile throws on missing file", "[preset]")
 {
     REQUIRE_THROWS_AS(Preset::loadFromFile("/nonexistent/path/preset.sfs"), PresetParseError);
+}
+
+TEST_CASE("applyToEngine writes macros, topology, ADSR, LFOs, mod matrix", "[preset][engine]")
+{
+    using sfs::engine::VoiceManager;
+
+    VoiceManager vm(1024, 16, 48000.0f);
+
+    Preset p;
+    p.macros = {0.4f, 0.6f, 0.7f, 0.1f, 0.9f, 0.55f};
+    p.structural.topology = "torus_64";
+    p.agents.shape_distribution = {0.0f, 0.1f, 0.0f, 0.7f, 0.2f}; // FmPair dominant
+    p.env1 = {0.1f, 0.4f, 0.5f, 1.5f};
+    p.lfos[0] = {2.5f, 1.0f, "sample_hold", "free", 0.0f, false};
+    p.lfos[1] = {0.5f, 0.8f, "triangle", "free", 0.0f, false};
+    p.mod_matrix[0] = {true, "LFO1", "MIGRATION", 0.4f, "LINEAR"};
+    p.mod_matrix[1] = {false, "ENV1", "DAMPING", 0.99f, "LINEAR"}; // inactive → 0
+
+    sfs::preset::applyToEngine(p, vm);
+
+    // Macros wrote.
+    REQUIRE(vm.macros().tension == 0.4f);
+    REQUIRE(vm.macros().damping == 0.6f);
+    REQUIRE(vm.macros().density == 0.7f);
+    REQUIRE(vm.macros().migration == 0.1f);
+    REQUIRE(vm.macros().coherence == 0.9f);
+    REQUIRE(vm.macros().excitation == 0.55f);
+    // Topology wrote.
+    REQUIRE(vm.topology() == sfs::engine::Topology::Torus2D);
+    // Uniform shape: dominantShape picked the highest entry (FmPair).
+    REQUIRE(vm.uniformShape() == sfs::engine::agents::AgentShape::FmPair);
+
+    // Cause a render so the smoothed-macros / ADSR / LFO state are
+    // exercised. Mostly we want to verify it doesn't crash and produces
+    // bounded output after the preset is applied.
+    constexpr int kSamples = 2048;
+    std::vector<float> outL(kSamples, 0.0f);
+    std::vector<float> outR(kSamples, 0.0f);
+    vm.noteOn(60, 1.0f);
+    vm.renderBlockStereo(outL.data(), outR.data(), kSamples);
+
+    float peak = 0.0f;
+    for (int i = 0; i < kSamples; ++i)
+    {
+        peak = std::max(peak, std::fabs(outL[static_cast<std::size_t>(i)]));
+    }
+    REQUIRE(peak > 0.0f);
+    REQUIRE(peak < 1.5f);
+}
+
+TEST_CASE("applyToEngine maps unknown enum strings to safe defaults", "[preset][engine]")
+{
+    using sfs::engine::VoiceManager;
+    VoiceManager vm(1024, 16, 48000.0f);
+
+    Preset p;
+    p.structural.topology = "future_torus_512"; // unknown → Ring1D fallback
+    p.lfos[0].shape = "weird_new_shape";        // unknown → Sine fallback
+    p.mod_matrix[0] = {true, "FUTURE_SOURCE", "FUTURE_DEST", 0.3f, "LINEAR"};
+
+    REQUIRE_NOTHROW(sfs::preset::applyToEngine(p, vm));
+    REQUIRE(vm.topology() == sfs::engine::Topology::Ring1D);
+}
+
+TEST_CASE("Preset round-trip through engine: load → apply → re-render is bit-exact", "[preset][engine][determinism]")
+{
+    // Two VoiceManagers configured identically — one via direct setters,
+    // one via applyToEngine of a Preset crafted to match. Their renders
+    // must be sample-identical.
+    using sfs::engine::VoiceManager;
+
+    Preset p;
+    p.macros = {0.5f, 0.3f, 0.6f, 0.0f, 1.0f, 0.0f}; // pitched-style
+    p.structural.topology = "ring";
+    p.agents.shape_distribution = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f}; // Sine
+    p.env1 = {0.01f, 0.12f, 0.75f, 0.25f};
+    for (auto& s : p.mod_matrix)
+    {
+        s = {false, "LFO1", "TENSION", 0.0f, "LINEAR"};
+    }
+
+    VoiceManager direct(1024, 16, 48000.0f);
+    direct.macros() = {0.5f, 0.3f, 0.6f, 0.0f, 1.0f, 0.0f};
+    direct.setTopology(sfs::engine::Topology::Ring1D);
+    direct.setUniformShape(sfs::engine::agents::AgentShape::Sine);
+    direct.setAdsr(10.0f, 120.0f, 0.75f, 250.0f);
+    for (int i = 0; i < 16; ++i)
+    {
+        direct.setModMatrixSlotDepth(i, 0.0f);
+    }
+
+    VoiceManager fromPreset(1024, 16, 48000.0f);
+    sfs::preset::applyToEngine(p, fromPreset);
+
+    direct.noteOn(60, 1.0f);
+    fromPreset.noteOn(60, 1.0f);
+
+    constexpr int kSamples = 4096;
+    std::vector<float> aL(kSamples), aR(kSamples), bL(kSamples), bR(kSamples);
+    direct.renderBlockStereo(aL.data(), aR.data(), kSamples);
+    fromPreset.renderBlockStereo(bL.data(), bR.data(), kSamples);
+
+    for (int i = 0; i < kSamples; ++i)
+    {
+        REQUIRE(aL[static_cast<std::size_t>(i)] == bL[static_cast<std::size_t>(i)]);
+        REQUIRE(aR[static_cast<std::size_t>(i)] == bR[static_cast<std::size_t>(i)]);
+    }
 }

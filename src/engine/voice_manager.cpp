@@ -302,6 +302,21 @@ void VoiceManager::setModMatrixSlotDepth(int slotIndex, float depth) noexcept
     }
 }
 
+void VoiceManager::setModMatrixSlot(int slotIndex,
+                                    sfs::engine::mod_matrix::Source source,
+                                    sfs::engine::mod_matrix::Destination dest,
+                                    float depth) noexcept
+{
+    if (slotIndex < 0 || slotIndex >= sfs::engine::mod_matrix::ModMatrix::kNumSlots)
+    {
+        return;
+    }
+    for (auto& s : slots_)
+    {
+        s.voice.modMatrix().setSlot(slotIndex, source, dest, depth);
+    }
+}
+
 bool VoiceManager::snapshotPrimaryVoiceSubstrate(float* dst, int dstSize) const noexcept
 {
     if (dst == nullptr || dstSize <= 0)

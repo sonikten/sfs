@@ -33,6 +33,7 @@ target_link_libraries (sfs_unit_tests
         SFS::Engine::ModMatrix
         SFS::Engine
         SFS::Preset
+        SFS::PresetEngine
         SFS::DeterminismFlags
         SFS::StrictWarnings
         Catch2::Catch2WithMain

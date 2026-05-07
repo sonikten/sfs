@@ -123,6 +123,10 @@ public:
     void setAdsr(float attackMs, float decayMs, float sustainLevel, float releaseMs) noexcept;
     void setLfoConfig(int lfoIndex, float rateHz, sfs::engine::lfo::LfoShape shape) noexcept;
     void setModMatrixSlotDepth(int slotIndex, float depth) noexcept;
+    void setModMatrixSlot(int slotIndex,
+                          sfs::engine::mod_matrix::Source source,
+                          sfs::engine::mod_matrix::Destination dest,
+                          float depth) noexcept;
 
     // GUI snapshot: copies the most-recently-active voice's substrate state
     // into dst. Returns true if a voice was active enough to copy from;
