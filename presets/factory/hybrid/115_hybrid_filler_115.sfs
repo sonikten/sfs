@@ -16,12 +16,12 @@
   },
   "seed": "0x5F5F5F5F5F5F5F5F",
   "macros": {
-    "tension": 0.5792,
-    "damping": 0.2394,
+    "tension": 0.55,
+    "damping": 0.45,
     "density": 0.4727,
-    "migration": 0.1449,
-    "coherence": 0.7763,
-    "excitation": 0.4074
+    "migration": 0.20,
+    "coherence": 0.65,
+    "excitation": 0.30
   },
   "structural": {
     "topology": "torus_32",
@@ -132,5 +132,5 @@
     "pan": 0.0,
     "limiter_active": false
   },
-  "_audio_hash": "sha256:f27f2a7e47dce3244764a82373ee30ed6b6066de0684db3c13905a41ae1b3987"
+  "_audio_hash": "sha256:13d652b571f3c8018ac97f61f0b905dd6c2856560bcb1e4a80eac13e8e29d488"
 }

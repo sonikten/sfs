@@ -12,6 +12,7 @@ add_executable (sfs_integration_tests
     preset_playback_smoke_test.cpp
     preset_browse_workflow_test.cpp
     audio_correctness_test.cpp
+    audio_stability_test.cpp
     editor_layout_test.cpp
 )
 
