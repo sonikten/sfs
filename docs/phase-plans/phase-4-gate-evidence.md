@@ -171,42 +171,33 @@ the audio inner loop OR gated behind opt-in flags / channel layouts.
 - Doc 09 sweep — verify every persisted field round-trips through the
   preset format end-to-end.
 
-## Known divergence: canonical audio-hash render protocol
+## Resolved: canonical audio-hash render protocol (Option B)
 
-Surfaced during the Phase 4 audit follow-up. **The implementation and
-the spec disagree on the canonical render protocol for `_audio_hash`.**
+Earlier note: spec and tool diverged on velocity (100 vs 1.0) and gate
+behaviour (gate-off at sample 24000 vs never gating off). Resolution
+(user-confirmed): **Option B — fix the tool, regenerate every hash.**
 
-| Field | Doc 06 §3.3 says | `tools/sfs_preset_render` does |
-|---|---|---|
-| Velocity | 100 (≈ 0.787 normalised) | 1.0 (max) |
-| Gate behaviour | gate-on at sample 0, **gate-off at sample 24000** (0.5 s) | gate-on at sample 0, **never gates off** (full 30 s sustain) |
-| Other (sr / block / channels / duration / note) | 48 kHz / 256 / stereo float32 / 30 s / C4 | matches |
+Changes shipped:
 
-The 128 factory presets' `_audio_hash` values were generated with the
-tool's protocol, not the spec's. **No CI step currently validates a
-factory preset's stored `_audio_hash` against a live render**, so this
-divergence has been latent.
+- `tools/sfs_preset_render` defaults updated to match
+  `sfs-spec/06_rng_presets.md` §3.3 verbatim: velocity 100/127, gate-off
+  at sample 24000 (0.5 s @ 48 kHz). New `--gate-off-sample` flag exposes
+  the gate position; pass `0` for the legacy sustained variant.
+- All 128 factory `_audio_hash` values regenerated via
+  `tools/sfs_preset_hash.sh` with the corrected tool.
+- New `tests/integration/audio_hash_validation_test.cpp` walks every
+  factory preset, re-renders under the canonical protocol, hashes the
+  PCM via `shasum -a 256` (same path the hash tool uses), and asserts
+  match against the stored `_audio_hash`. Closes the medium-priority
+  audit gap "validate `_audio_hash` against live render."
 
-The audit's medium-priority gap "validate `_audio_hash` against live
-render" is deferred until the user confirms which protocol is
-canonical:
-
-- **Option A — keep the tool, fix the spec.** The simpler path: update
-  Doc 06 §3.3 to read "velocity 1.0, sustained for the full 30 s"; no
-  preset hashes change.
-- **Option B — fix the tool, regenerate every hash.** Update
-  `tools/sfs_preset_render` to gate-off at 0.5 s and use velocity 100;
-  re-run `tools/sfs_preset_hash.sh --update` across all 128 presets;
-  re-commit. Heavier but matches the spec's intent (the gate-off
-  captures release-tail behaviour, which is musically important).
-
-Recommended: **B** — the spec's protocol is more useful as a regression
-catch (it tests the release path, not just sustained behaviour). But
-the user owns this choice; flagging it rather than auto-deciding.
-
-Once the protocol is settled, the validation test trivially follows:
-walk every `presets/factory/**/*.sfs`, render via the chosen protocol,
-SHA-256 the PCM, compare against `_audio_hash`, fail on mismatch.
+The validation test runs in default PR CI as part of the integration
+tier. CI cost: ~5 min wall-clock (128 presets × 30 s render at engine
+direct path). Captures bit-exact regressions in the engine, the
+mod-matrix routing, the topology dispatch, the substrate physics — any
+code change that perturbs the canonical render's bytes will trip the
+matching preset's assertion with the offending preset name and live vs.
+stored hashes printed via Catch2's `UNSCOPED_INFO`.
 
 ## Sign-off
 

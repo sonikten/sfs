@@ -13,6 +13,7 @@ add_executable (sfs_integration_tests
     preset_browse_workflow_test.cpp
     audio_correctness_test.cpp
     audio_stability_test.cpp
+    audio_hash_validation_test.cpp
     editor_layout_test.cpp
 )
 

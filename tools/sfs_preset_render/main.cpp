@@ -37,18 +37,23 @@ struct Options
     double sampleRate = 48000.0;
     int blockSize = 256;
     double seconds = 30.0;
-    int midiNote = 60;     // C4 — Doc 06 §3.3
-    float velocity = 1.0f; // velocity 1.0 — Doc 06 §3.3
+    int midiNote = 60;                // C4 — Doc 06 §3.3
+    float velocity = 100.0f / 127.0f; // velocity 100 (normalised) — Doc 06 §3.3
+    int gateOffSample = 24000;        // gate-off at 0.5 s @ 48 kHz — Doc 06 §3.3 (0 = no gate-off)
 };
 
 void printUsage()
 {
     std::fprintf(stderr,
                  "usage: sfs_preset_render <input.sfs> <output.raw> [--seconds 30.0]\n"
-                 "                          [--note 60] [--velocity 1.0]\n"
+                 "                          [--note 60] [--velocity 0.787]\n"
+                 "                          [--gate-off-sample 24000]\n"
                  "                          [--sr 48000] [--block 256]\n"
                  "\n"
-                 "Renders the canonical preset audio-hash input per Doc 06 §3.3.\n");
+                 "Renders the canonical preset audio-hash input per Doc 06 §3.3:\n"
+                 "  velocity 100/127, gate-on at sample 0, gate-off at sample 24000\n"
+                 "  (0.5 s @ 48 kHz), render until 30 s. Pass --gate-off-sample 0 to\n"
+                 "  suppress gate-off and render fully sustained.\n");
 }
 
 [[nodiscard]] bool parseArgs(int argc, char** argv, Options& opts)
@@ -73,6 +78,10 @@ void printUsage()
         else if ((a == "--velocity") && i + 1 < argc)
         {
             opts.velocity = std::stof(argv[++i]);
+        }
+        else if ((a == "--gate-off-sample") && i + 1 < argc)
+        {
+            opts.gateOffSample = std::atoi(argv[++i]);
         }
         else if ((a == "--sr") && i + 1 < argc)
         {
@@ -125,8 +134,18 @@ int main(int argc, char** argv)
     std::vector<float> interleaved(static_cast<std::size_t>(totalSamples * 2), 0.0f);
 
     int written = 0;
+    bool gateOffFired = false;
     while (written < totalSamples)
     {
+        // Fire gate-off at the configured sample. Doc 06 §3.3 specifies
+        // sample 24000 (0.5 s @ 48 kHz) so the canonical render captures
+        // the release path + substrate ringing tail. opts.gateOffSample = 0
+        // suppresses gate-off entirely (sustained variant).
+        if (!gateOffFired && opts.gateOffSample > 0 && written >= opts.gateOffSample)
+        {
+            vm.noteOff(opts.midiNote);
+            gateOffFired = true;
+        }
         const int n = std::min(opts.blockSize, totalSamples - written);
         vm.renderBlockStereo(bufL.data(), bufR.data(), n);
         for (int i = 0; i < n; ++i)

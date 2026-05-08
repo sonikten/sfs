@@ -52,7 +52,18 @@ TMPDIR_OUT="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_OUT"' EXIT
 RAW="$TMPDIR_OUT/render.raw"
 
-"$RENDER" "$PRESET" "$RAW" --seconds 30.0 --note 60 --velocity 1.0 --sr 48000 --block 256 >/dev/null
+# Canonical render per sfs-spec/06_rng_presets.md §3.3 — uses the tool's
+# default protocol (velocity 100/127, gate-off at sample 24000 = 0.5 s,
+# 30 s @ 48 kHz / block 256). Velocity is NOT passed via flag because
+# parsing "0.7874015748" through std::stof produces sub-bit-different
+# IEEE754 from the tool's compile-time constant `100.0f / 127.0f`,
+# which would break the bit-exact match with the validation test.
+"$RENDER" "$PRESET" "$RAW" \
+    --seconds 30.0 \
+    --note 60 \
+    --gate-off-sample 24000 \
+    --sr 48000 \
+    --block 256 >/dev/null
 
 # shasum format: "<hash>  <path>". Strip the path, prepend "sha256:".
 HASH=$(shasum -a 256 "$RAW" | awk '{print $1}')
