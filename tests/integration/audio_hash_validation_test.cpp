@@ -138,27 +138,109 @@ constexpr double kRenderSeconds = 30.0;
     return static_cast<bool>(out);
 }
 
-// Compute SHA-256 of a file via `shasum -a 256` — same path the hash
-// tool uses. Returns lowercase hex digest, or empty string on error.
+// popen / pclose are POSIX. Windows / MSVC has the same API under
+// _popen / _pclose. Alias here so the body below stays clean.
+#ifdef _WIN32
+#define SFS_POPEN _popen
+#define SFS_PCLOSE _pclose
+#else
+#define SFS_POPEN popen
+#define SFS_PCLOSE pclose
+#endif
+
+// Compute SHA-256 of a file via the platform's hashing utility — same
+// path the hash tool uses. Returns lowercase hex digest, or empty
+// string on error.
+//
+// macOS / Linux: `shasum -a 256 <path>` → "<hash>  <path>\n"
+// Windows:       `certutil -hashfile <path> SHA256` → multi-line output
+//                with the hash on the second line (no path prefix), in
+//                uppercase. We lowercase before returning.
 [[nodiscard]] std::string shasum256(const std::filesystem::path& filePath)
 {
+#ifdef _WIN32
+    // certutil's output format on Win is:
+    //   "SHA256 hash of <path>:\r\n"
+    //   "<HEX_HASH>\r\n"
+    //   "CertUtil: -hashfile command completed successfully.\r\n"
+    const std::string cmd = "certutil -hashfile \"" + filePath.string() + "\" SHA256";
+#else
     const std::string cmd = "shasum -a 256 \"" + filePath.string() + "\"";
-    FILE* p = popen(cmd.c_str(), "r");
+#endif
+
+    FILE* p = SFS_POPEN(cmd.c_str(), "r");
     if (p == nullptr)
     {
         return {};
     }
-    std::array<char, 256> buf{};
-    std::string line;
-    if (std::fgets(buf.data(), static_cast<int>(buf.size()), p) != nullptr)
+
+    std::array<char, 512> buf{};
+    std::vector<std::string> lines;
+    while (std::fgets(buf.data(), static_cast<int>(buf.size()), p) != nullptr)
     {
-        line = buf.data();
+        lines.emplace_back(buf.data());
     }
-    pclose(p);
-    // Output format: "<64-hex-digits>  <path>\n". Take the first whitespace-
-    // delimited token.
+    SFS_PCLOSE(p);
+
+    auto trim = [](std::string s)
+    {
+        while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' '))
+        {
+            s.pop_back();
+        }
+        return s;
+    };
+
+#ifdef _WIN32
+    // The hash is the first whitespace-only-or-hex line.
+    for (const auto& raw : lines)
+    {
+        std::string line = trim(raw);
+        if (line.empty())
+        {
+            continue;
+        }
+        // Skip the human-readable header / footer lines.
+        bool allHex = !line.empty();
+        for (char c : line)
+        {
+            const bool ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || c == ' ';
+            if (!ok)
+            {
+                allHex = false;
+                break;
+            }
+        }
+        if (!allHex)
+        {
+            continue;
+        }
+        // Strip any embedded spaces and lowercase.
+        std::string hex;
+        hex.reserve(line.size());
+        for (char c : line)
+        {
+            if (c == ' ')
+            {
+                continue;
+            }
+            hex.push_back(static_cast<char>((c >= 'A' && c <= 'Z') ? c + ('a' - 'A') : c));
+        }
+        if (hex.size() == 64)
+        {
+            return hex;
+        }
+    }
+    return {};
+#else
+    if (lines.empty())
+    {
+        return {};
+    }
+    const std::string& line = lines.front();
     const auto sp = line.find(' ');
     return sp == std::string::npos ? std::string{} : line.substr(0, sp);
+#endif
 }
 
 } // namespace
