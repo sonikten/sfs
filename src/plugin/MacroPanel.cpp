@@ -87,8 +87,11 @@ void MacroPanel::styleKnob(juce::Slider& s)
     s.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour::fromRGB(140, 200, 220));
     s.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour::fromRGB(45, 55, 70));
     s.setColour(juce::Slider::thumbColourId, juce::Colour::fromRGB(220, 230, 240));
-    s.setVelocityBasedMode(true);
-    s.setMouseDragSensitivity(160);
+    // Linear drag — with 10 detents, velocity-based mode caused slow drags
+    // to register as zero motion and fast drags to overshoot. ~150 px maps
+    // the full rotation range, so each detent steps after ~15 px of drag.
+    s.setVelocityBasedMode(false);
+    s.setMouseDragSensitivity(150);
 }
 
 void MacroPanel::paint(juce::Graphics& g)

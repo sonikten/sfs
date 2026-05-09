@@ -137,8 +137,10 @@ void AdvancedPanel::styleKnob(juce::Slider& s) // NOLINT(misc-use-anonymous-name
     s.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour::fromRGB(140, 200, 220));
     s.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour::fromRGB(45, 55, 70));
     s.setColour(juce::Slider::thumbColourId, juce::Colour::fromRGB(220, 230, 240));
-    s.setVelocityBasedMode(true);
-    s.setMouseDragSensitivity(160);
+    // Linear drag — see MacroPanel::styleKnob for rationale (velocity-based
+    // mode + 10 detents = unpredictable interaction).
+    s.setVelocityBasedMode(false);
+    s.setMouseDragSensitivity(150);
 }
 
 void AdvancedPanel::styleSectionLabel(juce::Label& l)
