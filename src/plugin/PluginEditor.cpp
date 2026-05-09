@@ -365,15 +365,15 @@ void SfsEditor::resized()
     footer_.setBounds(area.removeFromBottom(22));
 
     // Three-panel stack at default 740 px window (after header+footer = 674):
-    //   substrate visualiser:  240 px (≈ 36 %)
-    //   macro panel:           120 px (≈ 18 %)
-    //   advanced panel:        remainder, ~314 px
-    // Proportions chosen so the substrate stays the visual focus while the
-    // ADSR/LFO/Matrix knob cluster fits without clipping. Heights flex on
-    // resize since the user can drag the window between 560 and 800 px tall.
+    //   substrate visualiser:  ~200 px (28 %)
+    //   macro panel:            ~190 px (28 %) — generous for square knobs
+    //   advanced panel:         remainder, ~284 px (3 sub-rows of square knobs)
+    // The macro/advanced panels need square cells to render the rotary knobs
+    // at usable sizes (no text boxes any more). The substrate keeps a tall
+    // strip for the waveform/heatmap.
     const int totalH = area.getHeight();
-    const int substrateH = juce::jlimit(180, 360, static_cast<int>(totalH * 0.36f));
-    const int macroH = juce::jlimit(110, 160, static_cast<int>(totalH * 0.18f));
+    const int substrateH = juce::jlimit(160, 320, static_cast<int>(totalH * 0.30f));
+    const int macroH = juce::jlimit(160, 220, static_cast<int>(totalH * 0.28f));
     substrateView_.setBounds(area.removeFromTop(substrateH));
     macroPanel_.setBounds(area.removeFromTop(macroH));
     advancedPanel_.setBounds(area);

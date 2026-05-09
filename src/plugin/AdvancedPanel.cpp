@@ -53,6 +53,7 @@ AdvancedPanel::AdvancedPanel(SfsAudioProcessor& processor)
         {
             adsrAttachments_[idx] = std::make_unique<juce::SliderParameterAttachment>(*adsrParams[i],
                                                                                       adsrSliders_[idx]);
+            quantizeToTenSteps(adsrSliders_[idx]);
         }
     }
 
@@ -74,6 +75,7 @@ AdvancedPanel::AdvancedPanel(SfsAudioProcessor& processor)
         if (auto* p = processor.lfoRateParam(i))
         {
             lfoRateAttachments_[idx] = std::make_unique<juce::SliderParameterAttachment>(*p, lfoRateSliders_[idx]);
+            quantizeToTenSteps(lfoRateSliders_[idx]);
         }
 
         if (auto* sp = processor.lfoShapeParam(i))
@@ -109,22 +111,34 @@ AdvancedPanel::AdvancedPanel(SfsAudioProcessor& processor)
         if (auto* p = processor.modSlotDepthParam(i))
         {
             matrixAttachments_[idx] = std::make_unique<juce::SliderParameterAttachment>(*p, matrixSliders_[idx]);
+            quantizeToTenSteps(matrixSliders_[idx]);
         }
+    }
+}
+
+void AdvancedPanel::quantizeToTenSteps(juce::Slider& s) // NOLINT(misc-use-anonymous-namespace)
+{
+    // 10 detents across the parameter's range. The user wants knobs that step
+    // 1..10 musically; the parameter still gets the underlying continuous
+    // value derived from those 10 evenly-spaced positions.
+    const auto range = s.getRange();
+    const double span = range.getEnd() - range.getStart();
+    if (span > 0.0)
+    {
+        s.setRange(range.getStart(), range.getEnd(), span / 9.0);
     }
 }
 
 void AdvancedPanel::styleKnob(juce::Slider& s) // NOLINT(misc-use-anonymous-namespace)
 {
     s.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-    s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 56, 16);
+    // No numerical text box — knob position alone is the value indicator.
+    s.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     s.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour::fromRGB(140, 200, 220));
     s.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour::fromRGB(45, 55, 70));
     s.setColour(juce::Slider::thumbColourId, juce::Colour::fromRGB(220, 230, 240));
-    s.setColour(juce::Slider::textBoxTextColourId, juce::Colour::fromRGB(200, 210, 220));
-    s.setColour(juce::Slider::textBoxOutlineColourId, juce::Colour::fromRGB(60, 70, 85));
-    s.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour::fromRGB(20, 25, 32));
     s.setVelocityBasedMode(true);
-    s.setMouseDragSensitivity(140);
+    s.setMouseDragSensitivity(160);
 }
 
 void AdvancedPanel::styleSectionLabel(juce::Label& l)
@@ -157,58 +171,61 @@ void AdvancedPanel::resized()
     }
 
     // Three vertically-stacked sub-rows: ADSR (top), LFOs (middle), Matrix (bottom).
-    // Heights chosen so each sub-row fits a 14px section header + label row +
-    // knob square comfortably without clipping at ≤ 360 px panel height.
-    const int sectionHeaderH = 14;
-    const int labelH = 14;
-    const int rowGap = 4;
+    constexpr int kSectionHeaderH = 14;
+    constexpr int kLabelH = 14;
+    constexpr int kRowGap = 4;
+    constexpr int kComboH = 24;
+    constexpr int kComboMaxW = 130;
 
     auto adsrRow = bounds.removeFromTop(bounds.getHeight() / 3);
-    bounds.removeFromTop(rowGap);
+    bounds.removeFromTop(kRowGap);
     auto lfoRow = bounds.removeFromTop(bounds.getHeight() / 2);
-    bounds.removeFromTop(rowGap);
+    bounds.removeFromTop(kRowGap);
     auto matrixRow = bounds;
 
-    // ----- ADSR row ----------------------------------------------------------
+    // Lay out a row of N square knobs, each in its own cell. Knobs are
+    // square (min of width / available height) so they're visually
+    // consistent across panels — same logic as MacroPanel.
+    auto layoutKnobRow =
+        [](juce::Rectangle<int> row, juce::Label& sectionLabel, juce::Label* perKnobLabels, juce::Slider* knobs, int n)
     {
-        adsrSectionLabel_.setBounds(adsrRow.removeFromTop(sectionHeaderH));
-        const int knobAreaW = adsrRow.getWidth() / kAdsrCount;
-        for (int i = 0; i < kAdsrCount; ++i)
+        sectionLabel.setBounds(row.removeFromTop(kSectionHeaderH));
+        const int cellW = row.getWidth() / n;
+        for (int i = 0; i < n; ++i)
         {
-            auto cell = adsrRow.removeFromLeft(knobAreaW);
-            const auto idx = static_cast<std::size_t>(i);
-            adsrLabels_[idx].setBounds(cell.removeFromTop(labelH));
-            adsrSliders_[idx].setBounds(cell.reduced(2));
+            auto cell = row.removeFromLeft(cellW);
+            perKnobLabels[i].setBounds(cell.removeFromTop(kLabelH));
+            const int side = std::min(cell.getWidth(), cell.getHeight()) - 4;
+            const int x = cell.getX() + (cell.getWidth() - side) / 2;
+            const int y = cell.getY() + (cell.getHeight() - side) / 2;
+            knobs[i].setBounds(x, y, side, side);
         }
-    }
+    };
 
-    // ----- LFO row -----------------------------------------------------------
+    layoutKnobRow(adsrRow, adsrSectionLabel_, adsrLabels_.data(), adsrSliders_.data(), kAdsrCount);
+    layoutKnobRow(matrixRow, matrixSectionLabel_, matrixLabels_.data(), matrixSliders_.data(), kMatrixCount);
+
+    // ----- LFO row: knob + dropdown per column -------------------------------
+    // Each column has: label (top) → square knob (middle) → narrow combo
+    // (bottom, capped at kComboMaxW so the dropdowns don't stretch across
+    // the column).
     {
-        lfoSectionLabel_.setBounds(lfoRow.removeFromTop(sectionHeaderH));
+        lfoSectionLabel_.setBounds(lfoRow.removeFromTop(kSectionHeaderH));
         const int colW = lfoRow.getWidth() / kLfoCount;
         for (int i = 0; i < kLfoCount; ++i)
         {
             auto cell = lfoRow.removeFromLeft(colW);
             const auto idx = static_cast<std::size_t>(i);
-            lfoRateLabels_[idx].setBounds(cell.removeFromTop(labelH));
-            // Reserve the bottom 22 px for the shape combo, knob takes the rest.
-            const int comboH = 22;
-            auto comboArea = cell.removeFromBottom(comboH);
-            lfoShapeBoxes_[idx].setBounds(comboArea.reduced(4, 0));
-            lfoRateSliders_[idx].setBounds(cell.reduced(2));
-        }
-    }
-
-    // ----- Matrix row --------------------------------------------------------
-    {
-        matrixSectionLabel_.setBounds(matrixRow.removeFromTop(sectionHeaderH));
-        const int knobAreaW = matrixRow.getWidth() / kMatrixCount;
-        for (int i = 0; i < kMatrixCount; ++i)
-        {
-            auto cell = matrixRow.removeFromLeft(knobAreaW);
-            const auto idx = static_cast<std::size_t>(i);
-            matrixLabels_[idx].setBounds(cell.removeFromTop(labelH));
-            matrixSliders_[idx].setBounds(cell.reduced(2));
+            lfoRateLabels_[idx].setBounds(cell.removeFromTop(kLabelH));
+            auto comboArea = cell.removeFromBottom(kComboH);
+            const int comboW = std::min(kComboMaxW, comboArea.getWidth() - 8);
+            const int comboX = comboArea.getX() + (comboArea.getWidth() - comboW) / 2;
+            lfoShapeBoxes_[idx].setBounds(comboX, comboArea.getY(), comboW, comboArea.getHeight());
+            // Knob fills the remaining cell, square-centred.
+            const int side = std::min(cell.getWidth(), cell.getHeight()) - 4;
+            const int x = cell.getX() + (cell.getWidth() - side) / 2;
+            const int y = cell.getY() + (cell.getHeight() - side) / 2;
+            lfoRateSliders_[idx].setBounds(x, y, side, side);
         }
     }
 }

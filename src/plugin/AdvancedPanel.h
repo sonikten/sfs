@@ -43,6 +43,7 @@ private:
     static void styleKnob(juce::Slider& s);
     static void styleSectionLabel(juce::Label& l);
     static void styleControlLabel(juce::Label& l);
+    static void quantizeToTenSteps(juce::Slider& s);
 
     juce::Label adsrSectionLabel_;
     std::array<juce::Slider, kAdsrCount> adsrSliders_;

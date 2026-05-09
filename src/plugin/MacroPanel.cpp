@@ -41,6 +41,11 @@ MacroPanel::MacroPanel(SfsAudioProcessor& processor)
         {
             macroAttachments_[idx] = std::make_unique<juce::SliderParameterAttachment>(*macroParams[i],
                                                                                        macroSliders_[idx]);
+            // Quantize to 10 detents (1..10 visually). The attachment maps slider
+            // value linearly to the parameter's normalised range, so 10 even
+            // steps give 10 musical positions across the parameter's full range.
+            const auto range = macroSliders_[idx].getRange();
+            macroSliders_[idx].setRange(range.getStart(), range.getEnd(), (range.getEnd() - range.getStart()) / 9.0);
         }
     }
 
@@ -76,14 +81,12 @@ MacroPanel::MacroPanel(SfsAudioProcessor& processor)
 void MacroPanel::styleKnob(juce::Slider& s)
 {
     s.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-    s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 18);
-    s.setRange(0.0, 1.0, 0.0001);
+    // No numerical text box — knob position alone is the value indicator.
+    // Code maps the rotary position to the underlying parameter's range.
+    s.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     s.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour::fromRGB(140, 200, 220));
     s.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour::fromRGB(45, 55, 70));
     s.setColour(juce::Slider::thumbColourId, juce::Colour::fromRGB(220, 230, 240));
-    s.setColour(juce::Slider::textBoxTextColourId, juce::Colour::fromRGB(200, 210, 220));
-    s.setColour(juce::Slider::textBoxOutlineColourId, juce::Colour::fromRGB(60, 70, 85));
-    s.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour::fromRGB(20, 25, 32));
     s.setVelocityBasedMode(true);
     s.setMouseDragSensitivity(160);
 }
@@ -103,29 +106,40 @@ void MacroPanel::resized()
         return;
     }
 
-    // Top row: 6 macro knobs evenly spaced. Bottom row: topology + shape
-    // dropdowns split horizontally.
-    auto knobRow = bounds.removeFromTop(static_cast<int>(bounds.getHeight() * 0.72f));
-    bounds.removeFromTop(8);
-    auto bottomRow = bounds;
+    // Bottom row reserved for the two dropdowns. Knob row gets the rest.
+    constexpr int kBottomRowHeight = 28;
+    auto bottomRow = bounds.removeFromBottom(kBottomRowHeight);
+    bounds.removeFromBottom(6);
+    auto& knobRow = bounds;
 
-    const int knobW = knobRow.getWidth() / kNumMacros;
+    // Six uniformly-sized knob cells. Each cell: 16 px label on top + square
+    // knob filling the rest. Knobs are square (min of width / height-after-
+    // label) so they're visually consistent across panels.
+    const int cellW = knobRow.getWidth() / kNumMacros;
+    constexpr int kLabelH = 16;
     for (int i = 0; i < kNumMacros; ++i)
     {
-        auto cell = knobRow.removeFromLeft(knobW);
+        auto cell = knobRow.removeFromLeft(cellW);
         const auto idx = static_cast<std::size_t>(i);
-        macroLabels_[idx].setBounds(cell.removeFromTop(16));
-        macroSliders_[idx].setBounds(cell.reduced(4));
+        macroLabels_[idx].setBounds(cell.removeFromTop(kLabelH));
+        // Square knob centred in the cell.
+        const int side = std::min(cell.getWidth(), cell.getHeight()) - 4;
+        const int x = cell.getX() + (cell.getWidth() - side) / 2;
+        const int y = cell.getY() + (cell.getHeight() - side) / 2;
+        macroSliders_[idx].setBounds(x, y, side, side);
     }
 
-    // Bottom row: dropdowns + labels. Left half = topology, right half = shape.
-    auto leftHalf = bottomRow.removeFromLeft(bottomRow.getWidth() / 2).reduced(2);
-    auto rightHalf = bottomRow.reduced(2);
+    // Bottom row: two narrow dropdowns + their labels. Each dropdown gets a
+    // fixed 130 px width — wider stretches looked cluttered next to the
+    // knobs.
+    constexpr int kLabelW = 80;
+    constexpr int kComboW = 130;
+    auto leftHalf = bottomRow.removeFromLeft(bottomRow.getWidth() / 2);
+    topologyLabel_.setBounds(leftHalf.removeFromLeft(kLabelW));
+    topologyBox_.setBounds(leftHalf.removeFromLeft(kComboW));
 
-    topologyLabel_.setBounds(leftHalf.removeFromLeft(80));
-    topologyBox_.setBounds(leftHalf);
-    shapeLabel_.setBounds(rightHalf.removeFromLeft(70));
-    shapeBox_.setBounds(rightHalf);
+    shapeLabel_.setBounds(bottomRow.removeFromLeft(kLabelW));
+    shapeBox_.setBounds(bottomRow.removeFromLeft(kComboW));
 }
 
 } // namespace sfs::plugin
