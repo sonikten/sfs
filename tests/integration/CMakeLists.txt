@@ -15,6 +15,7 @@ add_executable (sfs_integration_tests
     audio_stability_test.cpp
     audio_hash_validation_test.cpp
     editor_layout_test.cpp
+    gui_param_sync_test.cpp
 )
 
 target_link_libraries (sfs_integration_tests
